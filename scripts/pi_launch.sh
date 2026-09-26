@@ -47,7 +47,7 @@ ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
   enable_backpack_stack:=true \
   enable_imu:=true \
-  enable_icp:=true \
+  enable_icp:=false \
   "$@" &
 mapping_pid=$!
 wait -n "$router_pid" "$mapping_pid" || true
