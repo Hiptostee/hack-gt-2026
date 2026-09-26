@@ -198,6 +198,12 @@ viewer using host networking. TigerVNC Viewer runs natively on the Mac and
 connects to RViz in the container. In Docker Desktop, open **Settings >
 Resources > Network**, enable **Host networking**, and apply the restart.
 
+For the complete Pi and laptop voice-navigation demo, use the two launchers in
+[companion/README.md](companion/README.md#current-demo-click-and-speak-on-the-laptop-camera-and-navigation-on-the-pi).
+They start the Zenoh router and bridge as part of the Pi launch and the Docker
+viewer, SSH tunnel, and Gemini page as part of the laptop launch. Do not also
+start the individual services below while using those launchers.
+
 DDS cannot advertise a routable return address through Docker Desktop's VM.
 Use ROS 2's Zenoh middleware instead; it carries discovery and topic data over
 a TCP connection. Install it on the Pi once:

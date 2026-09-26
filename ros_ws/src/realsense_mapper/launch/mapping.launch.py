@@ -2,7 +2,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -16,6 +16,7 @@ def generate_launch_description():
     camera_source = LaunchConfiguration("camera_source")
     camera_profile = LaunchConfiguration("camera_profile")
     enable_backpack_stack = LaunchConfiguration("enable_backpack_stack")
+    enable_companion_bridge = LaunchConfiguration("enable_companion_bridge")
     enable_imu = LaunchConfiguration("enable_imu")
     enable_icp = LaunchConfiguration("enable_icp")
     enable_loop_closure = LaunchConfiguration("enable_loop_closure")
@@ -117,6 +118,23 @@ def generate_launch_description():
             "enable_backpack_stack",
             default_value="true",
             description="Start YOLO detection and backpack path planning",
+        ),
+        DeclareLaunchArgument(
+            "enable_companion_bridge",
+            default_value="true",
+            description="Start the Pi camera and guidance bridge on localhost:8081",
+        ),
+        ExecuteProcess(
+            cmd=["python3", "-m", "companion.voice.pi_bridge"],
+            name="companion_pi_bridge",
+            output="screen",
+            additional_env={
+                "PYTHONPATH": mapper_share + os.pathsep + os.environ.get("PYTHONPATH", ""),
+            },
+            condition=IfCondition(PythonExpression([
+                "'", camera_source, "' == 'realsense' and '",
+                enable_companion_bridge, "'.lower() == 'true'",
+            ])),
         ),
         DeclareLaunchArgument(
             "enable_imu",

@@ -60,33 +60,34 @@ Opens `http://localhost:8080`. Features:
 
 ### Current demo: click and speak on the laptop, camera and navigation on the Pi
 
-Run the ROS backpack stack on the Pi, then start its camera/guidance bridge in a
-second Pi terminal from the repository root. The Pi does not need a Gemini key:
+Run one command on the Pi from the repository root. It starts the Zenoh router,
+mapping, YOLO backpack guidance, and the camera/guidance bridge. Build the ROS
+workspace after pulling updates (`cd ros_ws && colcon build --packages-select
+realsense_mapper && cd ..`). The Pi does not need a Gemini key:
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-source ros_ws/install/setup.bash
-python3 -m companion.voice.pi_bridge
+./scripts/pi_launch.sh
 ```
 
-On the laptop, forward the bridge over SSH:
+Run one command on the laptop from the repository root:
 
 ```bash
-ssh -N -L 8081:127.0.0.1:8081 ubuntu@PI_LAN_ADDRESS
+python3 scripts/laptop_launch.py
 ```
 
-In another laptop terminal, set `GEMINI_API_KEY` and start the web service:
-
-```bash
-python3 -m companion.voice.web_test --pi-url http://127.0.0.1:8081
-```
+The laptop launcher uses `PI_LAN_IP=10.89.56.122` by default. Change it with
+`--pi-ip ADDRESS` if the Pi gets a new address. It prompts for the Gemini API
+key if `GEMINI_API_KEY` is unset, asks for the Pi SSH password, opens the browser
+voice page, and starts the Docker RViz viewer. Connect TigerVNC Viewer to
+`localhost:5901`. `Ctrl-C` in each terminal stops its services. An optional
+ElevenLabs key may be set on the laptop for synthesized speech; browser audio
+works without it.
 
 Open `http://localhost:8080`. Click and hold the browser button to speak through
 the laptop microphone, then release it. The laptop fetches one current JPEG from
 the Pi through the tunnel and sends the audio and JPEG to Gemini from the laptop.
 Answers play in the laptop browser. A spoken backpack navigation request goes
-back through the tunnel to activate the ROS guidance gate on the Pi. Keep the SSH
-tunnel open during the demo.
+back through the tunnel to activate the ROS guidance gate on the Pi.
 
 ### Model Configuration
 
