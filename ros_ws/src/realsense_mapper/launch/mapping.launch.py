@@ -3,7 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
@@ -18,6 +18,7 @@ def generate_launch_description():
     enable_backpack_stack = LaunchConfiguration("enable_backpack_stack")
     enable_imu = LaunchConfiguration("enable_imu")
     enable_icp = LaunchConfiguration("enable_icp")
+    icp_voxel_size = LaunchConfiguration("icp_voxel_size")
     odom_image_decimation = LaunchConfiguration("odom_image_decimation")
     use_realsense = IfCondition(
         PythonExpression(["'", camera_source, "' == 'realsense'"])
@@ -67,8 +68,10 @@ def generate_launch_description():
         # EKF messages are emitted on the filter's 60 Hz clock, so their
         # timestamps cannot exactly equal the RGB-D capture stamps.
         "approx_sync": True,
-        "topic_queue_size": 30,
-        "sync_queue_size": 30,
+        "topic_queue_size": 10,
+        "sync_queue_size": 10,
+        # Never pair an image with a substantially different-time EKF pose.
+        "approx_sync_max_interval": 0.04,
         # Consume the timestamp-matched odometry message directly. If
         # odom_frame_id is set here, RTAB-Map instead looks odometry up through
         # TF and one lost frame can turn into repeated extrapolation failures.
@@ -117,6 +120,11 @@ def generate_launch_description():
             "enable_icp",
             default_value="false",
             description="Fuse point-to-plane depth-cloud ICP translation",
+        ),
+        DeclareLaunchArgument(
+            "icp_voxel_size",
+            default_value="0.05",
+            description="ICP voxel size in metres; use 0.08 if processing falls behind",
         ),
         DeclareLaunchArgument(
             "camera_profile",
@@ -256,30 +264,33 @@ def generate_launch_description():
                 "qos": 2,
                 "topic_queue_size": 2,
                 # Reduce the 307k-point D415 cloud before normal estimation.
-                # These conservative settings target real-time operation on a
-                # Pi while retaining walls, furniture and other large planes.
+                # Voxelize before normal estimation. The local-map cap bounds
+                # matching cost; scan_cloud_max_points is NOT a point limiter.
                 "scan_downsampling_step": 2,
                 "scan_range_min": 0.35,
                 "scan_range_max": 3.0,
-                "scan_voxel_size": 0.10,
-                "scan_normal_k": 10,
-                "scan_cloud_max_points": 5000,
+                "scan_voxel_size": ParameterValue(icp_voxel_size, value_type=float),
+                "scan_normal_k": 20,
+                "scan_cloud_max_points": 0,
                 "Odom/GuessMotion": "false",
-                "Odom/ResetCountdown": "5",
+                # Stop publishing valid poses on loss instead of repeatedly
+                # reseeding the primary trajectory from an extrapolated EKF.
+                "Odom/ResetCountdown": "0",
                 "Odom/ScanKeyFrameThr": "0.5",
-                "OdomF2M/ScanSubtractRadius": "0.10",
-                "OdomF2M/ScanMaxSize": "5000",
+                "OdomF2M/ScanSubtractRadius": ParameterValue(icp_voxel_size, value_type=str),
+                "OdomF2M/ScanMaxSize": "8000",
                 "OdomF2M/BundleAdjustment": "false",
                 "Icp/Strategy": "1",
                 "Icp/PointToPlane": "true",
-                "Icp/Iterations": "10",
+                "Icp/Iterations": "15",
+                "Icp/VoxelSize": "0",
                 "Icp/Epsilon": "0.001",
-                "Icp/PointToPlaneK": "10",
+                "Icp/PointToPlaneK": "20",
                 "Icp/MaxTranslation": "0.30",
                 "Icp/MaxRotation": "0.50",
-                "Icp/MaxCorrespondenceDistance": "0.30",
+                "Icp/MaxCorrespondenceDistance": "0.15",
                 "Icp/OutlierRatio": "0.70",
-                "Icp/CorrespondenceRatio": "0.05",
+                "Icp/CorrespondenceRatio": "0.20",
             }],
             remappings=[
                 ("scan_cloud", "/camera/depth/color/points"),
@@ -293,6 +304,19 @@ def generate_launch_description():
             name="ekf_filter_node",
             output="screen",
             parameters=[os.path.join(mapper_share, "config", "ekf.yaml")],
+            condition=UnlessCondition(enable_icp),
+            remappings=[("odometry/filtered", "/odometry/filtered")],
+        ),
+        Node(
+            package="robot_localization",
+            executable="ekf_node",
+            name="ekf_filter_node",
+            output="screen",
+            condition=IfCondition(enable_icp),
+            parameters=[
+                os.path.join(mapper_share, "config", "ekf.yaml"),
+                os.path.join(mapper_share, "config", "ekf_icp.yaml"),
+            ],
             remappings=[("odometry/filtered", "/odometry/filtered")],
         ),
         Node(

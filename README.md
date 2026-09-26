@@ -128,9 +128,31 @@ ros2 launch realsense_mapper hardware.launch.py \
 
 The filter fuses gravity-referenced roll and pitch plus all gyro rates. It does
 not fuse absolute IMU yaw because the MPU6050 has no magnetometer. With ICP
-enabled, a downsampled D415 depth cloud is registered point-to-plane and its
-translation is fused with visual odometry. Full-resolution visual odometry is
-recommended because image decimation substantially reduces feature inliers.
+enabled, a downsampled D415 depth cloud is registered point-to-plane. ICP supplies
+the full pose; visual odometry supplies body-frame velocity, and the IMU supplies
+roll/pitch and gyro rates. This avoids blending two independently drifting
+position trajectories. The EKF reprocesses up to 0.6 seconds of delayed sensor
+data, and mapping limits image/odometry timestamp separation to 40 ms.
+
+ICP uses 5 cm voxels, a bounded 8,000-point local map, and a 20% minimum
+correspondence ratio. These are starting settings, not hardware-verified accuracy
+guarantees. If ICP processing consistently exceeds the 67 ms frame interval at
+15 FPS or delay keeps growing, add `icp_voxel_size:=0.08` to reduce load. Keep
+`odom_image_decimation:=1` initially to preserve visual features.
+
+ICP automatic reset is disabled: on sustained tracking loss, stop moving and
+return to the last tracked view. If it cannot recover, restart the mapping run
+(the current launch starts a fresh database). An EKF cannot recover translation
+from the IMU alone while both odometry sources are lost. Start level and keep the
+rig still during gyro calibration so the relative IMU reference matches the
+initial odometry reference.
+
+For a repeatable check, hold still for 10 seconds after calibration, move slowly
+one metre and back, then turn slowly while viewing furniture or a room corner.
+Save the launch output with `2>&1 | tee /tmp/slam-quality.log` and inspect
+`ros2 topic hz /icp_odom` in a terminal with the same ROS/Zenoh environment.
+Compare drift, repeated surfaces, ICP correspondence ratios and processing
+delays against the previous run; a screenshot alone cannot validate accuracy.
 
 The hardware launch file starts the D415 directly over USB. The installer adds
 ROS 2 Jazzy, installs package dependencies with `rosdep`,
