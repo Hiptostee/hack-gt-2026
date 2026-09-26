@@ -65,6 +65,7 @@ bool udp_ready = false;
 uint32_t udp_attempt_ms = 0;
 
 bool receiving = false;  // a packet arrived since the last failsafe
+bool have_packet = false;  // retain gap timing across failsafes and reconnects
 uint8_t last_seq = 0;
 uint32_t last_packet_ms = 0;
 uint8_t current_flags = 0;
@@ -219,6 +220,7 @@ void receive_packets() {
       LOG("state -> %s (seq=%u)", flags_name(flags), seq);
     }
     receiving = true;
+    have_packet = true;
     last_seq = seq;
     last_packet_ms = now;
     apply(flags, now);
@@ -226,6 +228,7 @@ void receive_packets() {
 }
 
 void check_failsafe(uint32_t now) {
+  if (have_packet) stats.max_gap_ms = max(stats.max_gap_ms, now - last_packet_ms);
   if (!receiving || now - last_packet_ms < tactile::kFailsafeTimeoutMs) return;
   LOG("FAILSAFE: no packet for %lu ms -> rest", static_cast<unsigned long>(now - last_packet_ms));
   receiving = false;
@@ -268,7 +271,9 @@ void hand_setup() {
   ledcSetup(kServoChannel, kServoHz, kServoResolutionBits);
   ledcAttachPin(TACTILE_SERVO_PIN, kServoChannel);
 #endif
-  rest_since_ms = millis();  // move to rest, then release
+  // Drive rest before Wi-Fi setup, which can outlast the release timer.
+  servo_pulse(pulse_for_degrees(TACTILE_REST_DEG));
+  rest_since_ms = millis();
 
   LOG("tactile hand: %s, ip %s, servo gpio %d", kHandName, kLocalIp.toString().c_str(),
       TACTILE_SERVO_PIN);

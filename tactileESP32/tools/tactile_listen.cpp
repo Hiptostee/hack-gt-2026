@@ -117,6 +117,7 @@ int main(int argc, char** argv) {
   Window window;
 
   auto check_failsafe = [&](Clock::time_point now) {
+    if (have_packet) window.max_gap_ms = std::max(window.max_gap_ms, millis(now - last_packet));
     if (have_packet && !in_failsafe && now - last_packet >= failsafe) {
       in_failsafe = true;
       state = 0;

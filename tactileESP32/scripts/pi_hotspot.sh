@@ -25,7 +25,7 @@ case "${1:-}" in
 
   up)
     PSK="${TACTILE_AP_PSK:?set TACTILE_AP_PSK to a WPA2 password of 8-63 characters}"
-    # Validate before replacing a working connection.
+    # Validate before updating a working connection.
     if [ "${#PSK}" -lt 8 ] || [ "${#PSK}" -gt 63 ]; then
       echo "TACTILE_AP_PSK must contain 8-63 characters" >&2
       exit 2
@@ -34,8 +34,12 @@ case "${1:-}" in
       1|6|11) ;;
       *) echo "TACTILE_AP_CHANNEL must be 1, 6 or 11" >&2; exit 2 ;;
     esac
-    if nmcli -t -f NAME connection show | grep -qx "$CONNECTION"; then
-      nmcli connection delete "$CONNECTION" >/dev/null
+    # Modify in place: a rejected setting must not erase the saved hotspot or
+    # tear down the active connection before the new settings are validated.
+    if nmcli connection show "$CONNECTION" >/dev/null 2>&1; then
+      PROFILE_COMMAND=(modify "$CONNECTION")
+    else
+      PROFILE_COMMAND=(add type wifi con-name "$CONNECTION")
     fi
     # band bg: the ESP32-WROOM-32 is 2.4 GHz only.
     # ipv4.method shared: NetworkManager serves DHCP on 10.42.0.10-254, so the
@@ -43,8 +47,9 @@ case "${1:-}" in
     # proto rsn + ccmp + pmf disable: plain WPA2-AES, which the Pi's brcmfmac
     #   AP mode and the ESP32 both handle reliably.
     # powersave 2: disable Wi-Fi power saving on the Pi side.
-    nmcli connection add type wifi ifname "$IFACE" con-name "$CONNECTION" \
-      autoconnect yes ssid "$SSID" \
+    nmcli connection "${PROFILE_COMMAND[@]}" \
+      connection.interface-name "$IFACE" connection.autoconnect yes \
+      802-11-wireless.ssid "$SSID" \
       802-11-wireless.mode ap \
       802-11-wireless.band bg \
       802-11-wireless.channel "$CHANNEL" \

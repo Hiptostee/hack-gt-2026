@@ -1,13 +1,62 @@
 """Process-level regressions; Python is used only by this optional test."""
+import json
+import os
+from pathlib import Path
 import re
 import select
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 sender, listener = sys.argv[1:]
+
+# Exercise hotspot updates without touching the host network or real nmcli.
+with tempfile.TemporaryDirectory() as directory:
+    mock = Path(directory) / "nmcli"
+    log = Path(directory) / "calls.jsonl"
+    mock.write_text('''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["NMCLI_LOG"], "a") as log:
+    log.write(json.dumps(args) + "\\n")
+if "show" in args:
+    if os.environ["NMCLI_EXISTS"] == "1":
+        print("tactile-ap")
+        sys.exit(0)
+    sys.exit(10)
+if "modify" in args and os.environ.get("NMCLI_FAIL_MODIFY") == "1":
+    sys.exit(2)
+''')
+    mock.chmod(0o755)
+    hotspot = Path(__file__).resolve().parents[1] / "scripts" / "pi_hotspot.sh"
+    for exists, fail, password, channel in (
+        ("1", "0", "test-password", "6"),
+        ("0", "0", "test-password", "6"),
+        ("1", "1", "test-password", "6"),
+        ("1", "0", "short", "6"),
+        ("1", "0", "test-password", "99"),
+    ):
+        log.write_text("")
+        env = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"],
+                   NMCLI_LOG=str(log), NMCLI_EXISTS=exists, NMCLI_FAIL_MODIFY=fail,
+                   TACTILE_AP_PSK=password, TACTILE_AP_CHANNEL=channel)
+        result = subprocess.run(["bash", str(hotspot), "up"], env=env,
+                                capture_output=True, timeout=2)
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        assert not any("delete" in call for call in calls), calls
+        invalid = password == "short" or channel == "99"
+        if invalid:
+            assert result.returncode == 2 and not calls, (result, calls)
+        elif fail == "1":
+            assert result.returncode != 0 and not any("up" in call for call in calls), calls
+        else:
+            assert result.returncode == 0, result
+            operation = "modify" if exists == "1" else "add"
+            assert any(call[:2] == ["connection", operation] for call in calls), calls
+            assert calls[-1] == ["connection", "up", "tactile-ap"], calls
 
 
 def read_line(process, timeout=2):
@@ -95,6 +144,9 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
         expected = ((times[1] - times[0]) + (times[3] - times[2])) * 500
         measured = float(re.search(r"gap avg ([\d.]+)", report)[1])
         assert abs(expected - measured) < 2, (expected, measured, lines)
+        # The average excludes resets, but max must include ongoing outages.
+        max_gap = float(re.search(r"max ([\d.]+) ms", report)[1])
+        assert max_gap >= 4000, report
     finally:
         process.terminate()
         process.communicate(timeout=2)

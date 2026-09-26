@@ -38,6 +38,7 @@ This part doesn't depend on ROS or Docker.
 CTest runs the Pi library tests and simulated left/right firmware tests. If Python 3
 is available when CMake configures, it also runs `test_tools` (four tests total),
 covering the CLI, two-hand loopback delivery, signal shutdown, and listener reports.
+It also checks hotspot create/update failures with a fake `nmcli`, without changing networking.
 Python is only needed for that optional test; the Pi runtime remains C++.
 These tests need permission to bind local UDP sockets. Firmware simulation uses
 test doubles for Arduino/Wi-Fi and does not replace testing on real boards.
@@ -270,6 +271,8 @@ Everything is in [esp32/tactile_hand/config.h](esp32/tactile_hand/config.h). Re-
 - **The Pi is the router.** `pi_hotspot.sh up` saves a NetworkManager connection called
   `tactile-ap` that turns `wlan0` into an access point. It has `autoconnect yes`, so it comes
   back on every boot. Run `up` once, not every session.
+  Re-running `up` updates the saved profile in place before reactivating it; a rejected
+  setting no longer deletes the existing profile.
 - **The hands have fixed addresses.** They don't ask the Pi for an address. They set
   10.42.0.2 or 10.42.0.3 themselves, chosen by the `left`/`right` build. The Pi hands out
   addresses from .10 upward to laptops, so the two never clash.
@@ -338,7 +341,7 @@ pings both hands.
 |-------|---------|---------------|
 | `ok` | ≈ 100 | Packets accepted. 20/s × 5 s = 100 |
 | `lost` | 0 to a few % | Gaps in the sequence number. Small losses are harmless, because every packet repeats the state |
-| `max gap` | well under 500 ms | Longest silence between packets. **This is the number that matters.** Near 500 ms, the failsafe starts firing and the servo stutters |
+| `max gap` | well under 500 ms | Longest silence since an accepted packet, including ongoing outages and failsafe resets. **This is the number that matters.** Near 500 ms, the failsafe starts firing and the servo stutters |
 | `rssi` | −30 to −60 dBm | Signal strength. Around −70 is marginal; −80 or worse causes dropouts |
 | `stale` / `malformed` | 0 | Late or out-of-order packets, or packets that aren't ours on port 4210 |
 

@@ -8,10 +8,11 @@ struct IPAddress {
 };
 struct FakeWiFi {
   bool connected = true;
+  uint32_t begin_delay_ms = 0;
   int status() const { return connected ? WL_CONNECTED : 0; }
   void disconnect() {}
   void config(IPAddress, IPAddress, IPAddress) {}
-  void begin(const char*, const char*) {}
+  void begin(const char*, const char*) { delay(begin_delay_ms); }
   void setSleep(bool) {}
   void persistent(bool) {}
   void mode(int) {}

@@ -13,11 +13,12 @@ int failures = 0;
 void reset_hand() {
   fake_ms = 100;
   pwm_writes.clear();
-  WiFi.connected = true;
+  WiFi = FakeWiFi{};
   udp = WiFiUDP{};
   wifi_up = false;
   wifi_attempt_ms = 0;
   receiving = false;
+  have_packet = false;
   last_seq = 0;
   last_packet_ms = 0;
   current_flags = 0;
@@ -49,6 +50,36 @@ void test_malformed_recovery() {
   hand_loop();
   CHECK(stats.malformed == 2);
   CHECK(last_seq == 1);
+}
+
+void test_slow_wifi_startup() {
+  reset_hand();
+  pwm_writes.clear();
+  WiFi.begin_delay_ms = 600;  // longer than the initial rest/release interval
+  hand_setup();
+  CHECK(!pwm_writes.empty());  // rest must already be driven during Wi-Fi setup
+  if (!pwm_writes.empty()) CHECK(pwm_writes.front() > 0);
+  hand_loop();
+  CHECK(released && pwm_writes.back() == 0);
+}
+
+void test_outage_gap_reporting() {
+  reset_hand();
+  packet(100, tactile::kFront);
+  hand_loop();
+  const uint32_t arrival = last_packet_ms;
+  fake_ms = arrival + 500;
+  hand_loop();
+  CHECK(stats.max_gap_ms == 500);
+  // A report resets window statistics, but must not hide ongoing silence.
+  stats = Stats{};
+  fake_ms = arrival + 1200;
+  hand_loop();
+  CHECK(stats.max_gap_ms == 1200);
+  packet(0, tactile::kFront);
+  hand_loop();
+  CHECK(receiving && last_seq == 0 && stats.lost == 0);
+  CHECK(stats.max_gap_ms >= 1200);
 }
 
 void test_failsafe_and_sequence_reset() {
@@ -131,7 +162,9 @@ void test_busy_socket_and_reconnect() {
 }  // namespace
 
 int main() {
+  test_slow_wifi_startup();
   test_malformed_recovery();
+  test_outage_gap_reporting();
   test_failsafe_and_sequence_reset();
   test_motion_and_wrap();
   test_busy_socket_and_reconnect();
