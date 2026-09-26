@@ -317,8 +317,9 @@ def generate_launch_description():
                 "config_path": openvins_config_path,
                 "max_cameras": 1,
                 "use_stereo": False,
-                "topic_imu": "/imu/data_raw",
-                "topic_camera0": "/camera/color/image_raw",
+                # OpenVINS declares these topic parameters itself and reads the
+                # actual names from the adjacent Kalibr YAML files. Passing
+                # them here pre-declares them and aborts ROS 2 startup.
                 "publish_global_to_imu_tf": False,
                 "publish_calibration_tf": False,
             }],
