@@ -295,6 +295,17 @@ class GeminiRequest(unittest.TestCase):
                                      "device_action": "self_destruct"})
         self.assertEqual(result["device_action"], "none")
 
+    def test_non_json_response_reports_http_metadata(self):
+        class BadResponse(io.BytesIO):
+            status = 200
+            headers = {"Content-Type": "text/html"}
+
+        client = gemini_module.Gemini("test-key", "gemini-3.5-flash-lite")
+        with mock.patch.object(gemini_module, "urlopen", return_value=BadResponse(b"<html>")):
+            with self.assertRaises(AppError) as caught:
+                client.ask(b"WAVDATA", b"\xff\xd8\xffJPEG", [])
+        self.assertIn("non-JSON", str(caught.exception))
+
     def test_truncated_answer_is_an_error_not_a_partial_answer(self):
         body = {"candidates": [{"finishReason": "MAX_TOKENS",
                                 "content": {"parts": [{"text": "{}"}]}}]}

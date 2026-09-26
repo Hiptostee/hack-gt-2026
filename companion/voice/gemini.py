@@ -121,7 +121,15 @@ class Gemini:
         timeout = max(5.0, min(25.0, deadline - time.monotonic()))
         try:
             with urlopen(request, timeout=timeout) as response:
-                return json.load(response)
+                body = response.read()
+                try:
+                    return json.loads(body)
+                except (ValueError, UnicodeError):
+                    content_type = response.headers.get("Content-Type", "unknown")
+                    print(f"Gemini non-JSON response: HTTP {response.status}, "
+                          f"Content-Type {content_type}, {len(body)} bytes", file=sys.stderr)
+                    raise AppError("Gemini returned a non-JSON response. Check the laptop "
+                                   "terminal for its HTTP status and content type.") from None
         except HTTPError as error:
             detail = error.read()[:600].decode("utf-8", "replace")
             print(f"Gemini {error.code}: {detail}", file=sys.stderr)
@@ -131,8 +139,6 @@ class Gemini:
                            error.code) from None
         except (URLError, TimeoutError, socket.timeout):
             raise AppError("I could not reach the network.", 504) from None
-        except (ValueError, UnicodeError):
-            raise AppError("Gemini returned something unreadable.") from None
 
     def _parse(self, result):
         try:
