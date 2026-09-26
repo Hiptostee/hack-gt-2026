@@ -11,10 +11,15 @@ set -u
 mkdir -p /root/.vnc /root/.config/xfce4 /data
 rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
 
+VNC_LOCALHOST="no"
+if [[ "${VIEWER_ONLY:-0}" == "1" ]]; then
+  VNC_LOCALHOST="yes"
+fi
+
 Xvnc :1 \
   -geometry "${VNC_RESOLUTION:-1600x1000}" \
   -depth 24 \
-  -localhost no \
+  -localhost "${VNC_LOCALHOST}" \
   -SecurityTypes None \
   -rfbport 5901 \
   > /tmp/xvnc.log 2>&1 &
