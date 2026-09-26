@@ -22,3 +22,26 @@ services:
       start_period: 30s
     shm_size: "1gb"
     restart: unless-stopped
+
+  rviz-viewer:
+    profiles: ["viewer"]
+    build:
+      context: .
+    image: realsense-rtabmap-poc:jazzy
+    container_name: realsense-rviz-viewer
+    network_mode: host
+    environment:
+      DISPLAY: ":1"
+      VNC_RESOLUTION: "1600x1000"
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-42}"
+      VIEWER_ONLY: "1"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep rviz2 >/dev/null && pgrep Xvnc >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    shm_size: "1gb"
+    restart: unless-stopped

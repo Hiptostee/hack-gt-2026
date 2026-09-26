@@ -110,6 +110,25 @@ and builds the workspace with `colcon`. RViz/noVNC are intentionally not
 installed on the Pi; inspect the Pi's ROS topics from a laptop on the same
 network and with the same `ROS_DOMAIN_ID`.
 
+### RViz on a Mac while the Pi maps
+
+Docker Desktop 4.34 or newer can run the repository image as an RViz-only
+viewer using host networking. In Docker Desktop, open **Settings > Resources >
+Network**, enable **Host networking**, and apply the restart. Keep the Mac and
+Pi on the same LAN, then run this from the repository on the Mac:
+
+```bash
+ROS_DOMAIN_ID=42 docker compose --profile viewer up rviz-viewer --build
+```
+
+Open `http://localhost:6080/vnc.html` and press **Connect**. This service starts
+RViz and the noVNC desktop only; the camera, odometry, and mapper continue to
+run exclusively on the Pi. Stop the viewer with `Ctrl-C` or:
+
+```bash
+docker compose --profile viewer down
+```
+
 ## Using the mapper
 
 1. Start with the D415 level and pointed into a textured room.
