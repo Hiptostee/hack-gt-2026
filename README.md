@@ -94,6 +94,14 @@ YOLO detection or backpack path planning, launch with:
 ros2 launch realsense_mapper hardware.launch.py enable_backpack_stack:=false
 ```
 
+On compute-constrained Pi deployments, request synchronized 15 FPS streams so
+the camera does not produce frames faster than the mapping stack can consume:
+
+```bash
+ros2 launch realsense_mapper hardware.launch.py \
+  camera_profile:=640x480x15 enable_backpack_stack:=false
+```
+
 The hardware launch file starts the D415 directly over USB. The installer adds
 ROS 2 Jazzy, installs package dependencies with `rosdep`,
 and builds the workspace with `colcon`. RViz/noVNC are intentionally not

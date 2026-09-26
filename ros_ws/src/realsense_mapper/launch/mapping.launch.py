@@ -13,6 +13,7 @@ def generate_launch_description():
     realsense_share = get_package_share_directory("realsense2_camera")
     mapper_share = get_package_share_directory("realsense_mapper")
     camera_source = LaunchConfiguration("camera_source")
+    camera_profile = LaunchConfiguration("camera_profile")
     enable_backpack_stack = LaunchConfiguration("enable_backpack_stack")
     use_realsense = IfCondition(
         PythonExpression(["'", camera_source, "' == 'realsense'"])
@@ -98,6 +99,11 @@ def generate_launch_description():
             default_value="true",
             description="Start YOLO detection and backpack path planning",
         ),
+        DeclareLaunchArgument(
+            "camera_profile",
+            default_value="640x480x30",
+            description="Shared color and depth stream profile",
+        ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(realsense_share, "launch", "rs_launch.py")
@@ -111,8 +117,8 @@ def generate_launch_description():
                 "enable_sync": "true",
                 "align_depth.enable": "true",
                 "pointcloud.enable": "false",
-                "rgb_camera.color_profile": "640x480x30",
-                "depth_module.depth_profile": "640x480x30",
+                "rgb_camera.color_profile": camera_profile,
+                "depth_module.depth_profile": camera_profile,
                 "rgb_camera.enable_auto_exposure": "false",
                 "depth_module.enable_auto_exposure": "false",
                 "config_file": os.path.join(
