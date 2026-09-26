@@ -120,13 +120,17 @@ the node can estimate gyro bias:
 ```bash
 ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
-  odom_image_decimation:=2 \
+  odom_image_decimation:=1 \
   enable_backpack_stack:=false \
-  enable_imu:=true
+  enable_imu:=true \
+  enable_icp:=true
 ```
 
 The filter fuses gravity-referenced roll and pitch plus all gyro rates. It does
-not fuse absolute IMU yaw because the MPU6050 has no magnetometer.
+not fuse absolute IMU yaw because the MPU6050 has no magnetometer. With ICP
+enabled, a downsampled D415 depth cloud is registered point-to-plane and its
+translation is fused with visual odometry. Full-resolution visual odometry is
+recommended because image decimation substantially reduces feature inliers.
 
 The hardware launch file starts the D415 directly over USB. The installer adds
 ROS 2 Jazzy, installs package dependencies with `rosdep`,
@@ -169,8 +173,10 @@ export ZENOH_ROUTER_CHECK_ATTEMPTS=30
 unset ZENOH_CONFIG_OVERRIDE
 ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
-  odom_image_decimation:=2 \
-  enable_backpack_stack:=false
+  odom_image_decimation:=1 \
+  enable_backpack_stack:=false \
+  enable_imu:=true \
+  enable_icp:=true
 ```
 
 Find the Pi's numeric LAN address with `hostname -I`. Keep the Mac and Pi on

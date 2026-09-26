@@ -17,6 +17,7 @@ def generate_launch_description():
     camera_profile = LaunchConfiguration("camera_profile")
     enable_backpack_stack = LaunchConfiguration("enable_backpack_stack")
     enable_imu = LaunchConfiguration("enable_imu")
+    enable_icp = LaunchConfiguration("enable_icp")
     odom_image_decimation = LaunchConfiguration("odom_image_decimation")
     use_realsense = IfCondition(
         PythonExpression(["'", camera_source, "' == 'realsense'"])
@@ -113,6 +114,11 @@ def generate_launch_description():
             description="Read and fuse an MPU6050 at I2C address 0x68",
         ),
         DeclareLaunchArgument(
+            "enable_icp",
+            default_value="false",
+            description="Fuse point-to-plane depth-cloud ICP translation",
+        ),
+        DeclareLaunchArgument(
             "camera_profile",
             default_value="640x480x30",
             description="Shared color and depth stream profile",
@@ -134,7 +140,12 @@ def generate_launch_description():
                 "enable_depth": "true",
                 "enable_sync": "true",
                 "align_depth.enable": "true",
-                "pointcloud.enable": "false",
+                # ICP consumes a geometrically filtered depth cloud. Keep this
+                # disabled unless ICP is requested because cloud generation is
+                # a meaningful extra load on a Raspberry Pi.
+                "pointcloud.enable": enable_icp,
+                "pointcloud.allow_no_texture_points": "true",
+                "pointcloud.ordered_pc": "false",
                 "rgb_camera.color_profile": camera_profile,
                 "depth_module.depth_profile": camera_profile,
                 "rgb_camera.enable_auto_exposure": "false",
@@ -227,6 +238,53 @@ def generate_launch_description():
             output="screen",
             parameters=[odom_parameters],
             remappings=camera_topics + [("odom", "/visual_odom")],
+            arguments=["--ros-args", "--log-level", "info"],
+        ),
+        Node(
+            package="rtabmap_odom",
+            executable="icp_odometry",
+            name="icp_odometry",
+            namespace="rtabmap",
+            output="screen",
+            condition=IfCondition(enable_icp),
+            parameters=[{
+                "frame_id": "camera_link",
+                "odom_frame_id": "odom",
+                # The EKF is the sole odom->camera_link TF publisher.
+                "publish_tf": False,
+                "wait_for_transform": 0.2,
+                "qos": 2,
+                "topic_queue_size": 2,
+                # Reduce the 307k-point D415 cloud before normal estimation.
+                # These conservative settings target real-time operation on a
+                # Pi while retaining walls, furniture and other large planes.
+                "scan_downsampling_step": 2,
+                "scan_range_min": 0.35,
+                "scan_range_max": 3.0,
+                "scan_voxel_size": 0.10,
+                "scan_normal_k": 10,
+                "scan_cloud_max_points": 5000,
+                "Odom/GuessMotion": "false",
+                "Odom/ResetCountdown": "5",
+                "Odom/ScanKeyFrameThr": "0.5",
+                "OdomF2M/ScanSubtractRadius": "0.10",
+                "OdomF2M/ScanMaxSize": "5000",
+                "OdomF2M/BundleAdjustment": "false",
+                "Icp/Strategy": "1",
+                "Icp/PointToPlane": "true",
+                "Icp/Iterations": "10",
+                "Icp/Epsilon": "0.001",
+                "Icp/PointToPlaneK": "10",
+                "Icp/MaxTranslation": "0.30",
+                "Icp/MaxRotation": "0.50",
+                "Icp/MaxCorrespondenceDistance": "0.30",
+                "Icp/OutlierRatio": "0.70",
+                "Icp/CorrespondenceRatio": "0.05",
+            }],
+            remappings=[
+                ("scan_cloud", "/camera/depth/color/points"),
+                ("odom", "/icp_odom"),
+            ],
             arguments=["--ros-args", "--log-level", "info"],
         ),
         Node(
