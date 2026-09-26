@@ -30,13 +30,13 @@ echo "deb [arch=${repo_arch} signed-by=/usr/share/keyrings/ros-archive-keyring.g
 sudo apt-get update
 sudo apt-get install -y \
   build-essential \
-  fastdds-tools \
   python3-colcon-common-extensions \
   python3-rosdep \
   ros-jazzy-ros-base \
   ros-jazzy-realsense2-camera \
   ros-jazzy-realsense2-description \
   ros-jazzy-rtabmap-ros \
+  ros-jazzy-rmw-zenoh-cpp \
   ros-jazzy-robot-localization
 
 if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then

@@ -117,34 +117,46 @@ viewer using host networking. TigerVNC Viewer runs natively on the Mac and
 connects to RViz in the container. In Docker Desktop, open **Settings >
 Resources > Network**, enable **Host networking**, and apply the restart.
 
-DDS multicast discovery may not cross Docker Desktop reliably, so run a Fast
-DDS discovery server on the Pi. Find the Pi's LAN address with `hostname -I`,
-then start the server using that address (replace `PI_LAN_IP` below):
+DDS cannot advertise a routable return address through Docker Desktop's VM.
+Use ROS 2's Zenoh middleware instead; it carries discovery and topic data over
+a TCP connection. Install it on the Pi once:
+
+```bash
+sudo apt update
+sudo apt install -y ros-jazzy-rmw-zenoh-cpp
+```
+
+Start the Zenoh router on the Pi and keep this terminal open:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+export ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"]'
+ros2 run rmw_zenoh_cpp rmw_zenohd
+```
+
+In the Pi terminal used for mapping, restart the stack as a local Zenoh client:
 
 ```bash
 unset ROS_DISCOVERY_SERVER
-fast-discovery-server -i 0 -l PI_LAN_IP -p 11811
-```
-
-Keep that terminal open. In the Pi terminal used for mapping, restart the stack
-as a discovery-server client:
-
-```bash
 export ROS_DOMAIN_ID=42
-export ROS_DISCOVERY_SERVER=PI_LAN_IP:11811
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+export ZENOH_ROUTER_CHECK_ATTEMPTS=30
+unset ZENOH_CONFIG_OVERRIDE
 ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
   odom_image_decimation:=2 \
   enable_backpack_stack:=false
 ```
 
-Keep the Mac and Pi on the same LAN. Stop any existing Compose application,
-then run the RViz-only service from the repository on the Mac:
+Find the Pi's numeric LAN address with `hostname -I`. Keep the Mac and Pi on
+the same LAN, stop any existing Compose application, then run the RViz-only
+service from the repository on the Mac (replace `PI_LAN_IP`):
 
 ```bash
 docker compose down
-ROS_DOMAIN_ID=42 ROS_DISCOVERY_SERVER=PI_LAN_IP:11811 \
-  docker compose --profile viewer up rviz-viewer --build
+export PI_LAN_IP=192.168.1.123
+ROS_DOMAIN_ID=42 docker compose --profile viewer up rviz-viewer --build
 ```
 
 Connect the native TigerVNC Viewer on the Mac to `localhost:5901`. No VNC

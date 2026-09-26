@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-realsense2-description \
     ros-jazzy-rtabmap-ros \
     ros-jazzy-robot-localization \
+    ros-jazzy-rmw-zenoh-cpp \
     ros-jazzy-rviz2 \
     tigervnc-standalone-server \
     tigervnc-tools \
