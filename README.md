@@ -99,7 +99,9 @@ the camera does not produce frames faster than the mapping stack can consume:
 
 ```bash
 ros2 launch realsense_mapper hardware.launch.py \
-  camera_profile:=640x480x15 enable_backpack_stack:=false
+  camera_profile:=640x480x15 \
+  odom_image_decimation:=2 \
+  enable_backpack_stack:=false
 ```
 
 The hardware launch file starts the D415 directly over USB. The installer adds

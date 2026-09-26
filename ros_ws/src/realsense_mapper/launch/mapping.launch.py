@@ -15,6 +15,7 @@ def generate_launch_description():
     camera_source = LaunchConfiguration("camera_source")
     camera_profile = LaunchConfiguration("camera_profile")
     enable_backpack_stack = LaunchConfiguration("enable_backpack_stack")
+    odom_image_decimation = LaunchConfiguration("odom_image_decimation")
     use_realsense = IfCondition(
         PythonExpression(["'", camera_source, "' == 'realsense'"])
     )
@@ -41,6 +42,9 @@ def generate_launch_description():
         # At 60 Hz, RTAB-Map's short-horizon motion guess reduces feature search
         # distance; the EKF below bridges brief periods with no visual update.
         "Odom/GuessMotion": "true",
+        # Decimation can be raised on compute-constrained hardware while SLAM
+        # continues receiving the original-resolution RGB-D streams.
+        "Odom/ImageDecimation": odom_image_decimation,
         # Reinitialize after a short sustained loss instead of leaving TF stale
         # forever. RTAB-Map handles odometry resets as a new map segment.
         "Odom/ResetCountdown": "5",
@@ -103,6 +107,11 @@ def generate_launch_description():
             "camera_profile",
             default_value="640x480x30",
             description="Shared color and depth stream profile",
+        ),
+        DeclareLaunchArgument(
+            "odom_image_decimation",
+            default_value="1",
+            description="Downsample factor used internally by RGB-D odometry",
         ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
