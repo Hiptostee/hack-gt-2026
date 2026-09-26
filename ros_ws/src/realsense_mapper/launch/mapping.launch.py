@@ -7,6 +7,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -44,7 +45,9 @@ def generate_launch_description():
         "Odom/GuessMotion": "true",
         # Decimation can be raised on compute-constrained hardware while SLAM
         # continues receiving the original-resolution RGB-D streams.
-        "Odom/ImageDecimation": odom_image_decimation,
+        "Odom/ImageDecimation": ParameterValue(
+            odom_image_decimation, value_type=str
+        ),
         # Reinitialize after a short sustained loss instead of leaving TF stale
         # forever. RTAB-Map handles odometry resets as a new map segment.
         "Odom/ResetCountdown": "5",
