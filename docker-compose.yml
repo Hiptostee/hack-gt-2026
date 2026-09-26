@@ -34,6 +34,7 @@ services:
       DISPLAY: ":1"
       VNC_RESOLUTION: "1600x1000"
       ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-42}"
+      ROS_DISCOVERY_SERVER: "${ROS_DISCOVERY_SERVER:-}"
       VIEWER_ONLY: "1"
     volumes:
       - ./data:/data

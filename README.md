@@ -110,20 +110,47 @@ and builds the workspace with `colcon`. RViz/noVNC are intentionally not
 installed on the Pi; inspect the Pi's ROS topics from a laptop on the same
 network and with the same `ROS_DOMAIN_ID`.
 
-### RViz on a Mac while the Pi maps
+### RViz in Docker with TigerVNC on a Mac
 
 Docker Desktop 4.34 or newer can run the repository image as an RViz-only
-viewer using host networking. In Docker Desktop, open **Settings > Resources >
-Network**, enable **Host networking**, and apply the restart. Keep the Mac and
-Pi on the same LAN, then run this from the repository on the Mac:
+viewer using host networking. TigerVNC Viewer runs natively on the Mac and
+connects to RViz in the container. In Docker Desktop, open **Settings >
+Resources > Network**, enable **Host networking**, and apply the restart.
+
+DDS multicast discovery may not cross Docker Desktop reliably, so run a Fast
+DDS discovery server on the Pi. Find the Pi's LAN address with `hostname -I`,
+then start the server using that address (replace `PI_LAN_IP` below):
 
 ```bash
-ROS_DOMAIN_ID=42 docker compose --profile viewer up rviz-viewer --build
+fastdds discovery -i 0 -l PI_LAN_IP -p 11811
 ```
 
-Open `http://localhost:6080/vnc.html` and press **Connect**. This service starts
-RViz and the noVNC desktop only; the camera, odometry, and mapper continue to
-run exclusively on the Pi. Stop the viewer with `Ctrl-C` or:
+Keep that terminal open. In the Pi terminal used for mapping, restart the stack
+as a discovery-server client:
+
+```bash
+export ROS_DOMAIN_ID=42
+export ROS_DISCOVERY_SERVER=PI_LAN_IP:11811
+ros2 launch realsense_mapper hardware.launch.py \
+  camera_profile:=640x480x15 \
+  odom_image_decimation:=2 \
+  enable_backpack_stack:=false
+```
+
+Keep the Mac and Pi on the same LAN. Stop any existing Compose application,
+then run the RViz-only service from the repository on the Mac:
+
+```bash
+docker compose down
+ROS_DOMAIN_ID=42 ROS_DISCOVERY_SERVER=PI_LAN_IP:11811 \
+  docker compose --profile viewer up rviz-viewer --build
+```
+
+Connect the native TigerVNC Viewer on the Mac to `localhost:5901`. No VNC
+password is configured, and the VNC server is provided by the local Docker
+container. The browser fallback remains `http://localhost:6080/vnc.html`.
+This service starts RViz and the VNC desktop only; the camera, odometry, and
+mapper continue to run exclusively on the Pi. Stop the viewer with `Ctrl-C` or:
 
 ```bash
 docker compose --profile viewer down

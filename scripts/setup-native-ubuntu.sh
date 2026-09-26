@@ -30,6 +30,7 @@ echo "deb [arch=${repo_arch} signed-by=/usr/share/keyrings/ros-archive-keyring.g
 sudo apt-get update
 sudo apt-get install -y \
   build-essential \
+  fastdds-tools \
   python3-colcon-common-extensions \
   python3-rosdep \
   ros-jazzy-ros-base \

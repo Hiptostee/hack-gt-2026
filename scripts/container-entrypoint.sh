@@ -49,7 +49,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 if [[ "${VIEWER_ONLY:-0}" == "1" ]]; then
-  echo "RViz viewer started. noVNC: http://localhost:6080/vnc.html"
+  echo "RViz viewer started. TigerVNC: localhost:5901"
+  echo "Browser fallback: http://localhost:6080/vnc.html"
   echo "Logs: docker exec realsense-rviz-viewer tail -f /tmp/rviz.log"
   wait -n "${RVIZ_PID}" "${VNC_PID}"
 else
