@@ -105,8 +105,8 @@ ros2 launch realsense_mapper hardware.launch.py \
 ```
 
 An MPU6050 at I2C address `0x68` can stabilize short-term rotation. The
-configured mounting transform assumes IMU X points down, Y points right, Z
-points backward, and the board is 2 cm left of `camera_link`. Install the
+configured mounting transform assumes IMU X points up, Y points left, Z points
+backward, and the board is 4 cm left of `camera_link`. Install the
 filter and grant the login user access to I2C once, then log out and back in:
 
 ```bash
