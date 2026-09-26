@@ -1,6 +1,6 @@
 # Wearable Spatial Guide — Implementation Plan
 
-**Version:** 1.2 · **Reviewed:** 2026-09-26 17:00 · **Event:** HackGT 2026
+**Version:** 1.3 · **Reviewed:** 2026-09-26 17:45 · **Event:** HackGT 2026
 
 A wearable spatial guide for blind and low-vision people, built as a complement
 to a white cane. The prototype adds forward chest/head-height obstacle alerts,
@@ -9,13 +9,16 @@ certified mobility aid or a replacement for the cane.
 
 This is the canonical implementation plan. Source paths below are relative to
 the repo.
-Evidence comes from code, `AGENTS.md`, `log.md`, `companion/specs.md` and the
-branches inspected on 2026-09-26: `feature/voice-companion` at `55dd3b1`,
-`main` at `6b01845`, `tactileESP32` at `33c6434`, and `origin/integeration`
-(spelled that way on the remote) at `1d902c7`. Branch contents do not
-establish that the combined wearable has been tested.
+Evidence comes from code, `AGENTS.md`, `log.md`, the feature specs and the
+branches inspected on 2026-09-26 18:30: `main` and `origin/integeration`
+(spelled that way on the remote) both at `fca5a5e`; `feature/guardian`
+(`e450198` tap mapping, audio owner, hazard phrase; `e31e770` Guardian;
+pushed); `feature/navigate-target` (`b0195a8` named-object navigation, on
+`e450198`); and `origin/tactileESP32` at `84e942c` (firmware plus a
+laptop-side tactile sender). None is merged into `main`. Branch contents do
+not establish that the combined wearable has been tested.
 
-### 1a. Integration branch status (`origin/integeration` @ `1d902c7`)
+### 1a. Integration branch status (`integeration` = `main` @ `fca5a5e`)
 
 The integration branch builds on all of `main` and adds a copy of the voice
 companion plus the glue between them. What it contains:
@@ -42,25 +45,38 @@ companion plus the glue between them. What it contains:
   when ICP is off; optional loop closure (`enable_loop_closure`). OpenVINS was
   added and then removed again on `main` (`6b01845`), so it is not a dependency.
 
-Gaps and regressions to resolve before merging:
+Remaining gaps:
 
-- **Voice regressions.** Commit `b065484` copied an older snapshot of the
-  companion, not `feature/voice-companion` head. The integration branch lacks
-  SSE streaming with answer-first parsing, image downscaling, the
-  `/hazard_warning` speech preemption, the speech speed setting, and the GPIO
-  button keyboard fallback (`9d682f6`, `55dd3b1`). These need to be re-applied
-  on top of the guidance changes.
-- **Tactile not merged.** `tactileESP32` is not an ancestor of the integration
-  branch; `/backpack/direction` still has no consumer that drives the hands.
+- **Voice regressions — RESOLVED.** `b065484` had copied an older companion
+  snapshot. The missing commits (`9d682f6`, `55dd3b1`: SSE streaming, image
+  downscaling, hazard preemption, speech speed, GPIO fallback) were
+  cherry-picked into `integeration` at `fca5a5e`, which is also `main`.
+- **Newer voice work not in `main`.** The tap mapping, shared audio owner and
+  hazard phrase are `e450198` on `feature/guardian`, with Guardian (`e31e770`)
+  on top. `feature/navigate-target` branches from `e450198`. Merge steps are in
+  `log.md` (18:30 handoff entry).
+- **Tactile sender exists but is not merged.** `origin/tactileESP32`
+  (`84e942c`) adds `companion/voice/tactile_link.py`: the laptop polls
+  `/guidance/state` from the Pi bridge and sends the 3-byte packet to both
+  hands at 20 Hz. It maps rotate left/right onto the left/right flags and sends
+  neutral when guidance is inactive, the route is invalid or state is older
+  than 0.4 s. A trial merge into `feature/guardian` had no conflicts. No hand
+  has been flashed.
 - **Direction output goes silent rather than neutral.** When the gate or inputs
-  go stale the direction node stops publishing. The tactile bridge must treat
-  silence as expiry (§7); otherwise the sender keeps repeating the last cue.
+  go stale the direction node stops publishing. The branch's tactile sender
+  treats silence as expiry (§7); any other consumer must do the same.
 - **Suspect IMU transform.** `camera_to_imu_tf` in `mapping.launch.py` is now
   `x = -2.0 m` (set in `b065484`). A 2 m camera-to-IMU offset is implausible on
   a wearable; confirm or correct before trusting fused odometry.
 - **Demo audio lives on the laptop.** In the current demo the button,
   microphone and speaker are the laptop browser's, not the Pi's. The on-device
-  `companion.voice` path exists but is not what `laptop_launch.py` runs.
+  `companion.voice` path exists but is not what `laptop_launch.py` runs. The
+  tap mapping, audio owner, hazard phrase and Guardian exist only in the
+  on-device path. **DECIDED WITH THE USER (18:20):** the demo runs the on-device
+  companion on the Pi (its button, USB mic and speaker), started with
+  `PI_VOICE=1 ./scripts/pi_launch.sh`. `--pi-url` lets the same service run on
+  the laptop against the Pi camera as a fallback. Pi bring-up TO BE VALIDATED
+  with `python3 -m companion.guardian.preflight --pin 17`.
 - **No hazard detector yet.** Nothing on any branch publishes
   `/hazard_warning`; see §5.
 
@@ -80,6 +96,7 @@ interaction; Navigate and Ask are not exclusive safety modes.
 | TO BE DECIDED | Unresolved choice; no hidden implementation assumption |
 | TO BE VALIDATED | Requires measurement or verification on the intended hardware |
 | STRETCH | Outside the initial demonstration commitment |
+| TO PURSUE | Selected by the team as a feature we want (§12); no code or spec yet; must not delay milestones 1–4 |
 
 **Outside the initial scope:** outdoor route guidance, backward guidance,
 reliable stairs/curbs/drop-off classification, arbitrary destination navigation,
@@ -162,15 +179,15 @@ tactile-only demo or a different button mapping.
 - **DECIDED WITH THE USER:** a tap while thinking or speaking cancels the
   response without automatically repeating. Release must not trigger idle
   repeat; late response/audio output must stay canceled. IMPLEMENTED on
-  `voice/on-integration` (unit-tested; Pi button TO BE VALIDATED).
+  `feature/guardian` (unit-tested; Pi button TO BE VALIDATED).
 - **DECIDED WITH THE USER:** hold to record a question, release to send it
   with the camera image; retain the existing push-to-talk interaction.
 - **DECIDED WITH THE USER:** double tap opens local spoken help/status,
   without internet and without contacting anyone. It must not wait behind a
   cloud request: help now runs on its own worker (IMPLEMENTED on
-  `voice/on-integration`).
+  `feature/guardian`).
 - **REMOVED FROM SCOPE:** locator sound. Another double tap remains help/status.
-  Removed from the voice device code on `voice/on-integration`; the browser
+  Removed from the voice device code on `feature/guardian`; the browser
   fallback in `companion/static/` still has its locator buttons.
 - **DECIDED WITH THE USER:** triple tap, or a spoken request returned by Gemini
   as `device_action: "guardian"`, enters Guardian Voice after a 2 s
@@ -188,10 +205,11 @@ tactile-only demo or a different button mapping.
 | Mapping and target planning | RTAB-Map RGB-D odometry, ICP on decimated ROS depth cloud fused via EKF, MPU6050, YOLOX backpack detector and A* in `ros_ws/` | IMPLEMENTED; `pi_launch.sh` selects ICP + IMU at 640x480x15; wearable performance and IMU transform TO BE VALIDATED |
 | Direction and pose stabilization | Direction, valid-visual-odometry and stable-odometry nodes | INTEGRATED on `integeration`; direction gated by `/backpack/guidance_active` |
 | Voice → navigation | `integeration`: `navigate_backpack` / `stop_navigation` actions, `RosGuidance`, Pi bridge | IMPLEMENTED ON INTEGRATION BRANCH; end-to-end walk TO BE VALIDATED |
-| Voice companion | `feature/voice-companion`: Gemini, ElevenLabs/local speech, button state machine | IMPLEMENTED; integration branch carries an older copy (see §1a). Current demo uses laptop browser audio; Pi button/mic/speaker demonstration TO BE VALIDATED |
-| Hazard interruption | `voice/on-integration`: one persistent audio owner (`voice/audio.py`), prioritized speech, resident "Obstacle ahead." phrase (`voice/hazards.py`), `_hazard()` for every state | IMPLEMENTED (hazard milestone 2): unit-tested and checked on a Mac speaker; payload still ignored (milestone 1); no detector publishes the topic; Pi onset timing TO BE VALIDATED |
-| Tactile transport/firmware | `tactileESP32`: C++ sender, protocol, hotspot scripts, SG90 firmware, PlatformIO build/flash | IMPLEMENTED ON BRANCH; not merged into `integeration`; log records host builds/tests, not flashed hardware |
-| Local help | `status_text()` status and last landmark on its own worker; locator removed from voice code | IMPLEMENTED on `voice/on-integration`; offline Pi run TO BE VALIDATED |
+| Voice companion | `main` (`fca5a5e`): Gemini streaming, ElevenLabs/local speech, button state machine; newer tap mapping on `feature/guardian` | IMPLEMENTED; current demo uses laptop browser audio; Pi button/mic/speaker demonstration TO BE VALIDATED |
+| Hazard interruption | `feature/guardian`: one persistent audio owner (`voice/audio.py`), prioritized speech, resident "Obstacle ahead." phrase (`voice/hazards.py`), `_hazard()` for every state | IMPLEMENTED (hazard milestone 2): unit-tested and checked on a Mac speaker; payload still ignored (milestone 1); no detector publishes the topic; Pi onset timing TO BE VALIDATED |
+| Tactile transport/firmware | `origin/tactileESP32` (`84e942c`): C++ sender, protocol, hotspot scripts, SG90 firmware, PlatformIO build/flash, laptop-side `tactile_link.py` fed by the Pi bridge | IMPLEMENTED ON BRANCH; not merged into `main`; log records host builds/tests, not flashed hardware |
+| Guardian Voice | `companion/guardian/`: agent configured and smoke-tested on a laptop; `GuardianController`, push-to-talk `GuardianAudio`, `SmsGate` with a fake sender | IMPLEMENTED ON BRANCH: `feature/guardian` (`e31e770`), wired into the on-device companion; tested live on a Mac; Twilio not built (fake sender only); not run on the Pi |
+| Local help | `status_text()` status and last landmark on its own worker; locator removed from voice code | IMPLEMENTED on `feature/guardian`; offline Pi run TO BE VALIDATED |
 | Phone/browser help fallback | Confirmed call/SMS/share handoffs in `companion/static/` | IMPLEMENTED FALLBACK; phone/platform validation pending; not standalone Pi dispatch |
 | Persistent remember-this | No object-memory pipeline found | TO BE IMPLEMENTED; STRETCH |
 
@@ -305,12 +323,17 @@ inflation defaults to 0.25 m. A grid path is not proof of a safe walking route.
   with no spoken arrival message.
 - **TO BE DECIDED:** steer versus rotate patterns and distinguishable feedback
   for arrival, no path and unavailable sensing.
-- **STRETCH / TO BE IMPLEMENTED:** arbitrary target selection. Gemini may help
-  identify a visible target, but textual distance/bearing guesses must not
-  directly command movement. Require localized image evidence, aligned depth,
-  timestamped transforms and a reachable approach point.
-- **TO BE IMPLEMENTED if arbitrary goals are added:** a goal-input interface.
-  `/backpack/goal` is currently a planner output, not a command subscription.
+- **STRETCH / IMPLEMENTED ON `feature/navigate-target`, HARDWARE TO BE
+  VALIDATED:** arbitrary target selection —
+  [Navigate to a named object](companion/navigate/specs.md). Gemini returns a
+  box in the existing voice request; the companion publishes it on
+  `/target/detection` with the frame's ROS stamp; the planner's existing
+  depth/TF projection turns it into a remembered `odom` goal. Gemini's text
+  never supplies distance or bearing; spoken distance/bearing come from the
+  planner's `/target/status`. Adds `/target/clear`, target ownership (voice vs
+  YOLO) and a 10 s time-based depth buffer. Verified by unit tests, a
+  simulated planner smoke test and one live Gemini image (boxes on target);
+  goal accuracy on real depth is unmeasured.
 
 ## 7. Tactile link and command lifetime
 
@@ -332,14 +355,16 @@ for the MVP. **TO BE DECIDED only if scope reopens:** whether it is wanted and
 how rear sensing and distinct feedback would support it. The old four-element
 array is not the current wire format.
 
-**TO BE IMPLEMENTED:** ROS-to-tactile bridge with source-command expiry,
-subscribing to `/backpack/direction` on the integration branch. That topic goes
-silent (no neutral message) when guidance stops or inputs expire, so the bridge
-must time out on silence. Rotate left/right (3, 4) also need a mapping onto the
-three-flag packet. The sender repeats its last state; a stopped planner can therefore leave an old
-direction active while the ESP32 still receives fresh packets. The receiver
-watchdog cannot detect that. Expire old commands, send neutral, and announce
-guidance loss even while the sender remains alive.
+**IMPLEMENTED ON BRANCH (not merged):** direction-to-tactile bridge with
+source-command expiry. On `origin/tactileESP32`, `RosGuidance` on the Pi
+subscribes to `/backpack/direction` and the bridge serves `/guidance/state`;
+the laptop's `companion/voice/tactile_link.py` polls it at 10 Hz and sends
+neutral when guidance is inactive, the route is invalid, or state is older than
+0.4 s. Rotate left/right (3, 4) map onto the left/right flags, so the hands
+cannot distinguish steering from rotating. **TO BE IMPLEMENTED:** a spoken
+guidance-loss announcement; today expiry only sends neutral, which the user
+cannot tell apart from arrival or inactivity. **TO BE VALIDATED:** measured
+expiry with the planner stopped and UDP alive, on flashed hands.
 
 **TO BE DECIDED:** expiry budget, maneuver patterns and receiver-health
 telemetry. Successful UDP sends do not establish receipt; the existing link has
@@ -384,7 +409,7 @@ help/status is also decided: it requires no internet and contacts no one.
 Locator sound is removed from scope; every double tap keeps the same help/status
 meaning. A long hold cannot also activate help while assigned to push-to-talk.
 
-Local status is implemented on `voice/on-integration`: locator removed from the
+Local status is implemented on `feature/guardian`: locator removed from the
 voice code, help on its own worker so it never waits behind Gemini, stale help
 requests skipped. **TO BE VALIDATED:** offline operation, physical gestures, repeated
 help requests and cancellation without automatic repeat. Battery may be unknown; last landmark must
@@ -395,8 +420,10 @@ build a separate authenticated phone/service integration. **Guardian Voice**
 ([spec](companion/guardian/specs.md)) is the planned Pi path: network-only,
 separate from double-tap help, SMS to one configured contact via Twilio, sent
 by the application only after a spoken preview and a fresh verbal yes.
-ElevenLabs agent configured and API access verified; no Guardian code yet;
-depends on the shared audio owner. The browser fallback
+ElevenLabs agent configured and API access verified. `GuardianController`,
+the push-to-talk audio path and `SmsGate` are implemented and wired into the
+on-device companion on `feature/guardian`; SMS uses a fake sender until
+Twilio is built; nothing has run on the Pi. The browser fallback
 opens confirmed call/message/share actions; it does not prove delivery or
 implement a standalone Pi emergency service.
 
@@ -451,6 +478,8 @@ scheduling are **TO BE DECIDED** before work starts.
    and use help while a cloud request is pending.
 5. **Then attempt stretch work.** Labeled memory first; re-identification,
    remote help and broader navigation after the core demonstration is reliable.
+   The features the team selected to pursue are in §12; the judge dashboard
+   (§12a) can start earlier because it only reads existing state.
 
 | Check | Required evidence |
 | --- | --- |
@@ -472,7 +501,102 @@ are development observations, not full-system guarantees. A 1024-byte PCM chunk
 containing ~23 ms of audio does not establish 23 ms playback-start latency;
 image compression time is not upload time.
 
-Review evidence: the Python suite completed with 44 passes and one skip; seven
-browser-help tests passed. These are software checks from the plan review,
-not ROS integration, flashed firmware or wearable validation. Tactile host
-build/test evidence comes from its branch log and was not rerun in that review.
+Review evidence (17:45): the Python suite ran 75 tests with 6 errors, all in
+hazard tests whose fake lacks the `current` attribute that the in-progress
+Guardian wiring reads; the working tree was being edited during the run. Seven
+browser-help tests passed. These are software checks, not ROS integration,
+flashed firmware or wearable validation. Tactile host build/test evidence
+comes from its branch log and was not rerun in this review.
+
+## 12. Features to pursue
+
+**TO PURSUE:** selected by the team on 2026-09-26 as features we want. None
+has code or a feature spec yet. Each needs its own `specs.md` before
+implementation (per `AGENTS.md`), and none may delay milestones 1–4. The
+designs below are starting positions for those specs, not decisions.
+
+### 12a. Judge debug dashboard
+
+Judges cannot feel the hand cues, and the wearer's interface is deliberately
+nonvisual. A live view lets an observer check why each cue happened.
+
+- A panel on the laptop demo page (`companion/voice/web_test.py`), fed by one
+  new Pi bridge endpoint (`GET /debug/state`) that aggregates existing state.
+  Polled at 2–5 Hz. No new ROS nodes.
+- Shows: latest camera frame; guidance `active`, `path_valid`, direction and
+  the tactile flags actually sent; the planner overlay
+  (`/backpack/planner_image` already exists); the latest hazard event and its
+  age once a detector exists; Guardian session state, tool calls and SMS draft
+  state. Every item shows its age.
+- Stale or missing data is shown as stale or missing, never as a blank that
+  reads as "clear".
+- It is a judge view, separate from the wearer's experience. No user function
+  depends on it; the device behaves the same with the page closed.
+- Shows state, not transcripts, by default. Guardian speech content stays off
+  the screen unless explicitly enabled for the demo (§8 privacy).
+- Depends on the demo-path decision in §1a: Guardian and the hazard phrase
+  currently run only in the on-device process, so their state must reach the
+  bridge whichever path is chosen.
+
+### 12b. "Take me back to where I started"
+
+- The companion stores a start point: automatically at the first valid
+  odometry after launch, replaced when the user says "remember this spot".
+  Stored as a point in `odom`, tagged with the mapping session it belongs to.
+- A spoken request returns a new `device_action` (`return_to_start`). The
+  companion sends the stored point to the planner as a goal. No Gemini box or
+  detector is involved, so no cloud call sits in the guidance loop.
+- Reuses the planner work in [Navigate to a named object](companion/navigate/specs.md)
+  §4.4: target ownership, `/target/clear`, `plan_to` results and
+  `/target/status`. Needs one extra input, a goal point (for example
+  `/target/point`, `geometry_msgs/PointStamped` in `odom`), because
+  `/target/detection` expects an image box.
+- Confirmation, distance and bearing come from planner status and are composed
+  locally: "Guiding you back to where you started, about 6 meters, behind
+  you." Arrival is spoken.
+- Refuses, with a spoken reason, when tracking is lost or the map or session
+  was reset since the point was stored. Saved coordinates cannot be reused
+  across map resets (§10).
+- The same caveats as §6 apply: unknown cells are allowed and a route is a
+  cost preference, not proof of a clear path.
+
+### 12c. Timed trail of observations in Guardian's text
+
+**IMPLEMENTED** on `feature/guardian` (uncommitted), unit-tested; preview
+length with a full trail not yet checked on the Pi.
+
+- The session keeps the last three distinct landmarks, each with its camera
+  capture time, and drops entries older than 30 minutes (provisional). Today it
+  keeps only one.
+- Guardian's SMS template ([spec §7](companion/guardian/specs.md#7-sms--application-enforced-verbal-confirmation))
+  lists them newest first: "Recent camera observations: elevator sign at
+  3:55 PM; Room 204 sign at 3:52 PM." The app writes this list, not the model.
+- `get_status` returns the same trail. The agent's greeting keeps only the
+  most recent observation so it stays short.
+- Wording stays "the camera saw X at Y". A trail is a history of what the
+  camera saw, not a route or a current location, and the text must imply
+  neither.
+- The spoken SMS preview reads the whole text, so it gets longer. Check that
+  it stays tolerable to listen to.
+
+### 12d. Other languages
+
+- Scene questions: Gemini answers in the language the user spoke.
+  `device_action` values and other schema fields stay English. The companion's
+  default TTS model, `eleven_flash_v2_5`, is multilingual; check that the
+  chosen voice sounds acceptable in each demo language.
+- Guardian: the agent is configured for English with `eleven_flash_v2`, which
+  is English-only. Other languages need a multilingual TTS model and the
+  agent's additional-language settings; verify the options in the ElevenLabs
+  dashboard and record them in [agent.md](companion/guardian/agent.md).
+- Local offline speech stays in one configured device language for now: the
+  hazard phrase, double-tap help/status, local error messages, the SMS preview
+  and exit announcements. Hazard warnings must never depend on the cloud or on
+  detecting a language.
+- SMS text stays in the contact's language (English initially), because the
+  contact reads it, not the user.
+- **TO BE DECIDED:** which languages to demo; whether local phrases follow a
+  configured language (`espeak-ng`/`say` voices and a pre-rendered hazard
+  phrase per language).
+- **TO BE VALIDATED:** transcription and answer quality per language on the
+  event network.

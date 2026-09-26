@@ -33,6 +33,11 @@ curl -s -H "xi-api-key: $ELEVENLABS_API_KEY" \
 | Agent output audio | `pcm_16000` |
 | User input audio | `pcm_16000` |
 
+Planned, not applied: supporting other languages
+([plan §12d](../../plan.md#12d-other-languages)) needs a multilingual TTS
+model in place of the English-only `eleven_flash_v2`, plus the agent's
+language settings. Update this record when the dashboard changes.
+
 ## Conversation limits
 
 | Setting | Value | Why |
@@ -41,7 +46,7 @@ curl -s -H "xi-api-key: $ELEVENLABS_API_KEY" \
 | Turn timeout | 30 s | Push-to-talk leaves long gaps; the agent must not keep prompting |
 | Silence end-call timeout | Disabled (-1) | No inactivity exit (spec §2) |
 | Soft timeout | Disabled | No filler speech |
-| Turn mode / eagerness | `turn` / normal, speculative turn on | Defaults |
+| Turn mode / eagerness | `turn` / **eager**, speculative turn on | Push-to-talk ends each turn with digital silence; "normal" took 1.1–6.2 s to notice |
 
 ## Privacy
 

@@ -234,13 +234,20 @@ current companion already uses, adding a device action field:
 {
   "answer":        "string, spoken aloud, at most 3 short sentences",
   "landmark":      "string, empty unless a clear distinctive landmark is visible",
-  "device_action": "none | repeat | louder | quieter | stop | help | save_landmark | guardian"
+  "device_action": "none | repeat | louder | quieter | stop | help | save_landmark | guardian | navigate_backpack | navigate_target | stop_navigation",
+  "target":        "string, short noun phrase; empty unless navigate_target",
+  "box_2d":        "[y_min, x_min, y_max, x_max] on 0-1000, or null; only for navigate_target"
 }
 ```
 
 `guardian` is returned when the user asks for guardian mode or says they are
 lost and want help talking it through; it opens Guardian Voice
 ([guardian/specs.md](guardian/specs.md) §2). Plain "help" stays `help`.
+
+`navigate_target` is an explicit request to be taken to a visible object other
+than the backpack. Gemini's box goes to the planner, and the spoken reply is
+composed locally from the planner's measured distance and bearing
+([navigate/specs.md](navigate/specs.md)). "Where is X?" stays a question.
 
 Routing device actions through the model rather than a local keyword matcher
 means "say that again", "repeat", and "I didn't catch that" all work without
@@ -386,6 +393,9 @@ fallback demo if the voice path fails on the day.
 | Speech rate / voice selection | Undecided; blind users commonly prefer faster-than-default rates |
 | Accidental button press while walking | Needs a guard — recessed button, or ignore presses under 150 ms (§2) |
 | Wake word | Explicitly out of scope |
+| Other languages | TO PURSUE ([plan §12d](../plan.md#12d-other-languages)): Gemini answers in the language the user spoke; `device_action` stays English; ElevenLabs `eleven_flash_v2_5` is multilingual. Local offline phrases (hazard, help/status, errors) stay in one configured device language |
+| Judge debug dashboard | TO PURSUE ([plan §12a](../plan.md#12a-judge-debug-dashboard)): read-only panel on the laptop page (`web_test.py`) fed by a Pi bridge `GET /debug/state`; no user function depends on it |
+| "Take me back to where I started" | TO PURSUE ([plan §12b](../plan.md#12b-take-me-back-to-where-i-started)): new `return_to_start` device action; the goal comes from a stored `odom` point, not from Gemini |
 
 ---
 
