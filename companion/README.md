@@ -11,8 +11,8 @@ Two front ends share this package:
 
 Button mapping (implemented, unit-tested; Pi timing not yet validated): hold to
 talk and release to send; one tap repeats the last answer; two taps give local
-spoken help/status; three taps are the Guardian entry point (Guardian itself is
-not built yet). A tap while thinking or speaking only cancels. Help needs no
+spoken help/status; three taps open Guardian (see below). A tap while thinking
+or speaking only cancels. Help needs no
 internet, contacts no one and runs on its own worker. The locator sound is
 removed. See [specs.md §2](specs.md#2-interaction-model). Audio hardware options remain exploratory: likely open speaker
 for the hackathon demo, bone conduction for the future product after it.
@@ -34,9 +34,47 @@ python3 -m companion.voice --image path/to.jpg     # dev machine, keyboard inste
 ```
 
 Without `--pin`, a keyboard stand-in replaces the button: Enter starts and ends a
-turn, `r` is a short press, `h` is a double press, `g` is a triple press, `q`
-quits. Without `--ros`, `--image` supplies a static JPEG so the pipeline can be
-exercised off the robot.
+turn, `r` is a short press, `h` is a double press, `g` is a triple press, `x`
+simulates a hazard warning, `q` quits. Without `--ros`, `--image` supplies a
+static JPEG so the pipeline can be exercised off the robot. `--pi-url
+http://127.0.0.1:8081` instead takes frames and guidance from the Pi bridge
+through the SSH tunnel, so the laptop can run this service against the real
+camera (hazard messages are not forwarded; use `x`).
+
+### Guardian Voice
+
+A push-to-talk conversation with an ElevenLabs agent, for when the user is
+lost or wants help thinking it through. It needs the network. Spec:
+[guardian/specs.md](guardian/specs.md).
+
+- **Enter:** three taps, or ask for it ("I'm lost, I need guardian mode"). A
+  rising tone and "Opening guardian mode. Tap to cancel." give a 2 s window;
+  no mic audio is sent before it ends.
+- **Inside:** hold to talk, tap to stop the agent, double tap to leave. Every
+  exit ends with the device's own voice and the local status.
+- **Tools:** device status with recent camera observations, a scene
+  description (Gemini), and a text to one configured contact. The device reads
+  the text aloud and sends it once, only on a "yes" said in a new hold.
+
+```bash
+pip3 install elevenlabs                  # plus the voice companion packages above
+export ELEVENLABS_API_KEY='your-key'     # needs Agents permission
+export ELEVENLABS_AGENT_ID='agent_...'   # Guardian is off without both
+export GUARDIAN_CONTACT_NAME='Sarah'
+export GUARDIAN_USER_NAME='Jae'
+export GUARDIAN_SMS=fake                 # prints texts; or `twilio` with the four below
+# export TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_FROM_NUMBER=+1...
+# export GUARDIAN_CONTACT_NUMBER=+1...   # Twilio trial accounts: a verified number
+
+python3 -m companion.guardian.preflight --pin 17   # on the Pi, before a demo
+PI_VOICE=1 ./scripts/pi_launch.sh                  # ROS stack + this service on GPIO 17
+python3 scripts/fake_hazard.py --every 5           # bench test: warnings during Guardian
+```
+
+The preflight checks keys, packages, the speaker at 22050 Hz and mic at
+16 kHz, local speech timing, a triple tap on the button, the network check
+Guardian uses, the agent's signed URL, and a short silent session (greeting
+and heartbeats). `pi_launch.sh` loads `.env` for the voice service only.
 
 Taps resolve half a second after the last one, so help starts after that pause.
 Help uses the local speech engine so it still works with no network.

@@ -1,8 +1,8 @@
 """Guardian tests. No microphone, speaker, network or ElevenLabs connection."""
-import queue
 import threading
 import time
 import unittest
+import unittest.mock
 
 import numpy as np
 
@@ -140,6 +140,128 @@ class SmsGateTests(unittest.TestCase):
         self.assertLessEqual(len(gate.compose("x" * 500, "")), 160 + 120)
 
 
+class TwilioTests(unittest.TestCase):
+    def sender(self):
+        from companion.guardian.sms import TwilioSender
+        return TwilioSender("AC123", "secret", "+15550001")
+
+    def reply(self, body):
+        import io
+        import json as json_module
+        return io.BytesIO(json_module.dumps(body).encode())
+
+    def test_request_shape(self):
+        from urllib.parse import parse_qs
+        captured = {}
+
+        def fake(request, timeout=None):
+            captured["url"] = request.full_url
+            captured["auth"] = request.headers["Authorization"]
+            captured["form"] = parse_qs(request.data.decode())
+            return self.reply({"sid": "SM9", "status": "queued"})
+
+        with unittest.mock.patch("companion.guardian.sms.urlopen", fake):
+            result = self.sender().send("+15550100", "hello")
+        self.assertEqual(result, {"status": "submitted", "id": "SM9"})
+        self.assertTrue(captured["url"].endswith("/Accounts/AC123/Messages.json"))
+        self.assertTrue(captured["auth"].startswith("Basic "))
+        self.assertEqual(captured["form"], {"To": ["+15550100"], "From": ["+15550001"],
+                                            "Body": ["hello"]})
+
+    def test_refusal_is_a_definite_failure(self):
+        import io
+        from urllib.error import HTTPError
+        error = HTTPError("url", 400, "bad", {}, io.BytesIO(b'{"code":21608}'))
+        with unittest.mock.patch("companion.guardian.sms.urlopen", side_effect=error):
+            self.assertEqual(self.sender().send("+1555", "x")["status"], "failed")
+
+    def test_server_error_or_timeout_is_unknown(self):
+        import io
+        from urllib.error import HTTPError, URLError
+        for error in (HTTPError("url", 503, "busy", {}, io.BytesIO(b"")),
+                      TimeoutError("read timed out"), URLError(TimeoutError("timed out"))):
+            with unittest.mock.patch("companion.guardian.sms.urlopen", side_effect=error):
+                self.assertEqual(self.sender().send("+1555", "x")["status"], "unknown", error)
+
+    def test_unreachable_before_sending_is_a_failure(self):
+        from urllib.error import URLError
+        with unittest.mock.patch("companion.guardian.sms.urlopen",
+                                 side_effect=URLError("nodename nor servname provided")):
+            self.assertEqual(self.sender().send("+1555", "x")["status"], "failed")
+
+    def test_delivery_check(self):
+        sender = self.sender()
+        for status, expected in (("delivered", "delivered"), ("undelivered", "failed"),
+                                 ("sent", None)):
+            with unittest.mock.patch("companion.guardian.sms.urlopen",
+                                     return_value=self.reply({"status": status})):
+                self.assertEqual(sender.check("SM9"), expected)
+
+    def test_env_selects_sender_and_refuses_partial_config(self):
+        from companion.guardian.sms import FakeSender, TwilioSender, sender_from_env
+        self.assertIsInstance(sender_from_env({"GUARDIAN_SMS": "fake"}), FakeSender)
+        self.assertIsNone(sender_from_env({"GUARDIAN_SMS": "twilio",
+                                           "TWILIO_ACCOUNT_SID": "AC1"}))
+        full = {"GUARDIAN_SMS": "twilio", "TWILIO_ACCOUNT_SID": "AC1", "TWILIO_AUTH_TOKEN": "t",
+                "TWILIO_FROM_NUMBER": "+1", "GUARDIAN_CONTACT_NUMBER": "+2"}
+        self.assertIsInstance(sender_from_env(full), TwilioSender)
+        self.assertIsNone(sender_from_env({}))
+
+
+class TrailTests(unittest.TestCase):
+    def at(self, hour, minute):
+        return time.mktime((2026, 9, 26, hour, minute, 0, 0, 0, -1))
+
+    def session(self):
+        session = Session()
+        session.save_landmark("Room 204 sign", self.at(15, 52))
+        session.save_landmark("elevator sign", self.at(15, 55))
+        return session
+
+    def test_newest_first_with_capture_times(self):
+        with unittest.mock.patch("time.time", return_value=self.at(16, 0)):
+            text = self.session().trail_text()
+        self.assertEqual(text, "Recent camera observations: elevator sign at 3:55 PM; "
+                               "Room 204 sign at 3:52 PM.")
+
+    def test_repeat_sighting_moves_to_front_and_size_is_capped(self):
+        session = self.session()
+        for label, minute in (("exit sign", 56), ("water fountain", 57), ("Room 204 sign", 58)):
+            session.save_landmark(label, self.at(15, minute))
+        labels = [o["label"] for o in session.observations]
+        self.assertEqual(labels, ["Room 204 sign", "water fountain", "exit sign"])
+
+    def test_old_observations_drop_out(self):
+        with unittest.mock.patch("time.time", return_value=self.at(16, 24)):
+            self.assertEqual(self.session().trail_text(),
+                             "The camera last saw elevator sign at 3:55 PM.")
+        with unittest.mock.patch("time.time", return_value=self.at(17, 0)):
+            self.assertEqual(self.session().trail_text(), "No landmark has been observed.")
+
+    def test_greeting_keeps_only_the_newest(self):
+        with unittest.mock.patch("time.time", return_value=self.at(16, 0)):
+            self.assertEqual(self.session().observation_text(),
+                             "The camera last saw elevator sign at 3:55 PM.")
+
+    def test_sms_and_status_carry_the_trail(self):
+        audio = Audio(start_output=False)
+        audio.earcon = lambda *_a, **_k: None
+        session = Session()
+        session.save_landmark("Room 204 sign", time.time() - 120)
+        session.save_landmark("elevator sign", time.time() - 60)
+        spoken = []
+        controller = GuardianController(audio, FakeSpeech(), FakeCamera(), FakeGemini(),
+                                        session, lambda: "Network reachable.", lambda: True,
+                                        print)
+        controller.sms = SmsGate(RecordingSender(), "Sarah", "", "Jae", speak=spoken.append,
+                                 update=lambda _t: None)
+        controller.state = "active"
+        tools = controller._tools(controller.session_id)
+        self.assertIn("Recent camera observations: elevator sign", tools["get_status"]({}))
+        tools["prepare_sms"]({"note": ""})
+        self.assertIn("Recent camera observations: elevator sign", spoken[0])
+
+
 class GuardianAudioTests(unittest.TestCase):
     def setUp(self):
         self.audio = Audio(start_output=False)
@@ -250,7 +372,8 @@ class ControllerTests(unittest.TestCase):
             return conversation
 
         session = Session()
-        session.save_landmark("Room 204 sign", time.mktime((2026, 9, 26, 15, 52, 0, 0, 0, -1)))
+        self.seen_at = time.time() - 60
+        session.save_landmark("Room 204 sign", self.seen_at)
         controller = GuardianController(
             self.audio, self.speech, camera or FakeCamera(), gemini or FakeGemini(), session,
             status=lambda: "Network reachable.", network_up=lambda: network,
@@ -267,8 +390,9 @@ class ControllerTests(unittest.TestCase):
     def test_opens_after_the_window_with_the_observation_as_context(self):
         controller = self.opened()
         variables = self.conversations[0].variables
+        clock = time.strftime("%I:%M %p", time.localtime(self.seen_at)).lstrip("0")
         self.assertEqual(variables["last_observation"],
-                         "The camera last saw Room 204 sign at 3:52 PM.")
+                         f"The camera last saw Room 204 sign at {clock}.")
         self.assertEqual(variables["sms_available"], "no")
         self.assertIn(("Opening guardian mode. Tap to cancel.", True), self.speech.said)
         self.assertTrue(controller.voice.enabled)

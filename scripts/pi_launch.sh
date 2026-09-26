@@ -19,8 +19,13 @@ fi
 
 router_pid=""
 mapping_pid=""
+voice_pid=""
 cleanup() {
   trap - EXIT HUP INT TERM
+  if [[ -n "$voice_pid" ]]; then
+    kill -TERM "$voice_pid" 2>/dev/null || true
+    wait "$voice_pid" 2>/dev/null || true
+  fi
   if [[ -n "$mapping_pid" ]]; then
     kill -TERM "$mapping_pid" 2>/dev/null || true
     wait "$mapping_pid" 2>/dev/null || true
@@ -50,5 +55,21 @@ ros2 launch realsense_mapper hardware.launch.py \
   enable_icp:=true \
   "$@" &
 mapping_pid=$!
-wait -n "$router_pid" "$mapping_pid" || true
+
+# PI_VOICE=1 also runs the on-device companion (button, mic, speaker, Guardian)
+# with keys from .env. Without it, audio stays on the laptop page as before.
+pids=("$router_pid" "$mapping_pid")
+if [[ "${PI_VOICE:-0}" == "1" ]]; then
+  echo "Starting on-device voice companion on GPIO ${PI_VOICE_PIN:-17}..."
+  (
+    cd "$repo_root"
+    set -a
+    [[ -f .env ]] && source .env
+    set +a
+    exec python3 -m companion.voice --ros --pin "${PI_VOICE_PIN:-17}"
+  ) &
+  voice_pid=$!
+  pids+=("$voice_pid")
+fi
+wait -n "${pids[@]}" || true
 echo "A Pi service exited; stopping the remaining services." >&2

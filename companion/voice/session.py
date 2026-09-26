@@ -2,6 +2,9 @@
 import time
 
 IMAGE_TTL = 60
+# Guardian's trail (plan §12c): distinct landmarks, newest first. Provisional limits.
+TRAIL_SIZE = 3
+TRAIL_TTL = 30 * 60
 
 
 class Session:
@@ -12,7 +15,12 @@ class Session:
         self.captured_at = None
         self.history = []
         self.last_answer = ""
-        self.landmark = None
+        self.observations = []  # [{"label", "at"}], newest first.
+
+    @property
+    def landmark(self):
+        trail = self.trail()
+        return trail[0] if trail else None
 
     def set_image(self, image, captured_at):
         self.image = image
@@ -31,24 +39,46 @@ class Session:
         self.last_answer = answered
 
     def save_landmark(self, label, captured_at=None):
-        """captured_at is when the camera saw it, not when Gemini answered."""
-        if label:
-            self.landmark = {"label": label, "at": captured_at or time.time()}
+        """captured_at is when the camera saw it, not when Gemini answered.
+        Seeing the same label again moves it to the front with the new time."""
+        label = (label or "").strip()
+        if not label:
+            return
+        at = captured_at or time.time()
+        kept = [o for o in self.observations if o["label"].lower() != label.lower()]
+        self.observations = ([{"label": label, "at": at}] + kept)[:TRAIL_SIZE]
 
-    def _landmark_time(self):
-        return time.strftime("%I:%M %p", time.localtime(self.landmark["at"])).lstrip("0")
+    def trail(self, now=None):
+        now = now or time.time()
+        return [o for o in self.observations if now - o["at"] <= TRAIL_TTL]
+
+    @staticmethod
+    def _clock(at):
+        return time.strftime("%I:%M %p", time.localtime(at)).lstrip("0")
 
     def describe_landmark(self):
-        if not self.landmark:
+        landmark = self.landmark
+        if not landmark:
             return "No landmark has been observed yet."
-        return (f"Last landmark: {self.landmark['label']}, seen at {self._landmark_time()}. "
+        return (f"Last landmark: {landmark['label']}, seen at {self._clock(landmark['at'])}. "
                 "That is a past observation, not your current location.")
 
     def observation_text(self):
         """Guardian wording: a timed camera observation, never a location."""
-        if not self.landmark:
+        landmark = self.landmark
+        if not landmark:
             return "No landmark has been observed."
-        return f"The camera last saw {self.landmark['label']} at {self._landmark_time()}."
+        return f"The camera last saw {landmark['label']} at {self._clock(landmark['at'])}."
+
+    def trail_text(self):
+        """Newest first, as what the camera saw — never a route or a location."""
+        trail = self.trail()
+        if not trail:
+            return "No landmark has been observed."
+        if len(trail) == 1:
+            return self.observation_text()
+        items = "; ".join(f"{o['label']} at {self._clock(o['at'])}" for o in trail)
+        return f"Recent camera observations: {items}."
 
     def clear(self):
         self.image = None

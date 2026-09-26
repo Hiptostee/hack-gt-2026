@@ -62,15 +62,18 @@ def battery_text():
     return "Battery level unknown."
 
 
-def status_text(camera, gemini, session):
-    """Local device status. Shared by double-tap help and Guardian."""
-    return " ".join([
+def status_text(camera, gemini, session, landmark=True):
+    """Local device status. Shared by double-tap help and Guardian, which adds
+    its own observation trail instead of the single landmark."""
+    parts = [
         "Network reachable." if network_up() else "No network.",
         "Camera: " + camera.status() + ".",
         "Gemini key configured." if gemini.key else "No Gemini key.",
         battery_text(),
-        session.describe_landmark(),
-    ])
+    ]
+    if landmark:
+        parts.append(session.describe_landmark())
+    return " ".join(parts)
 
 
 class Companion:
@@ -448,6 +451,9 @@ def main():
     parser.add_argument("--hazard-topic", default="/hazard_warning",
                         help="ROS topic for obstacle alerts that preempt speech")
     parser.add_argument("--image", help="Dev: use a static JPEG instead of a camera")
+    parser.add_argument("--pi-url",
+                        help="Laptop: take frames and guidance from the Pi bridge through an SSH "
+                             "tunnel, e.g. http://127.0.0.1:8081")
     parser.add_argument("--gain", type=float, default=1.0, help="Output volume multiplier")
     args = parser.parse_args()
 
@@ -470,15 +476,22 @@ def main():
     hazards = HazardVoice(audio, speech)
     gemini = Gemini(os.environ.get("GEMINI_API_KEY", ""),
                     os.environ.get("GEMINI_MODEL", DEFAULT_MODEL))
-    try:
-        camera = open_camera(args.topic if args.ros else None, args.image,
-                             hazard_topic=args.hazard_topic if args.ros else None,
-                             on_hazard=lambda: events.put(("hazard", time.monotonic())))
-    except AppError as error:
-        print(f"FATAL: {error}", file=sys.stderr)
-        return 1
-
     guidance = None
+    if args.pi_url:
+        from companion.voice.pi_bridge import RemotePi
+        try:
+            camera = guidance = RemotePi(args.pi_url)
+        except ValueError as error:
+            print(f"FATAL: {error}", file=sys.stderr)
+            return 1
+    else:
+        try:
+            camera = open_camera(args.topic if args.ros else None, args.image,
+                                 hazard_topic=args.hazard_topic if args.ros else None,
+                                 on_hazard=lambda: events.put(("hazard", time.monotonic())))
+        except AppError as error:
+            print(f"FATAL: {error}", file=sys.stderr)
+            return 1
     if args.ros:
         from companion.voice.guidance import RosGuidance
         guidance = RosGuidance()
@@ -487,7 +500,7 @@ def main():
     if os.environ.get("ELEVENLABS_API_KEY") and os.environ.get("ELEVENLABS_AGENT_ID"):
         from companion.guardian.session import from_env
         guardian = from_env(audio, speech, camera, gemini, session,
-                            status=lambda: status_text(camera, gemini, session),
+                            status=lambda: status_text(camera, gemini, session, landmark=False),
                             network_up=network_up,
                             notify=lambda reason: events.put(("guardian_closed", reason)))
     print(f"Voice companion on {platform.system()}. "

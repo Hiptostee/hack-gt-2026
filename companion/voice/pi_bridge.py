@@ -86,6 +86,9 @@ class RemotePi:
         except AppError:
             pass
 
+    def close(self):
+        pass  # Nothing held open; each request is its own connection.
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

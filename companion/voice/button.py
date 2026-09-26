@@ -34,6 +34,7 @@ Dev controls (no GPIO):
   r       short press (repeat last answer)
   h       double press (help mode)
   g       triple press (guardian mode)
+  x       simulate a hazard warning
   q       quit
 """
 
@@ -54,7 +55,9 @@ Dev controls (no GPIO):
             if key == "q":
                 self.events.put(("quit", now))
                 return
-            if key == "r":
+            if key == "x":
+                self.events.put(("hazard", now))
+            elif key == "r":
                 self.events.put(("press", now))
                 self.events.put(("release", now + 0.3))
             elif key in ("h", "g"):

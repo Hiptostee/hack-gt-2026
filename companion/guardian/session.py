@@ -60,19 +60,14 @@ def connect_elevenlabs(api_key, agent_id, audio_interface, tools, dynamic_variab
 
 def from_env(audio, speech, camera, gemini, session, status, network_up, notify):
     """Controller configured from the environment (spec §3)."""
-    from companion.guardian.sms import FakeSender, SmsGate
+    from companion.guardian.sms import SmsGate, sender_from_env
 
     controller = GuardianController(
         audio, speech, camera, gemini, session, status, network_up, notify,
         api_key=os.environ.get("ELEVENLABS_API_KEY", ""),
         agent_id=os.environ.get("ELEVENLABS_AGENT_ID", ""))
-    mode = os.environ.get("GUARDIAN_SMS", "").lower()
-    sender = FakeSender() if mode == "fake" else None
-    if mode and mode != "fake":
-        print(f"GUARDIAN_SMS={mode!r}: only 'fake' is implemented; texting disabled.",
-              file=sys.stderr)
     controller.sms = SmsGate(
-        sender,
+        sender_from_env(os.environ),
         contact_name=os.environ.get("GUARDIAN_CONTACT_NAME", ""),
         contact_number=os.environ.get("GUARDIAN_CONTACT_NUMBER", ""),
         user_name=os.environ.get("GUARDIAN_USER_NAME", ""),
@@ -121,7 +116,9 @@ class GuardianController:
         return bool(self.api_key and self.agent_id)
 
     def describe(self):
-        texting = "fake texting" if self.sms and self.sms.available else "no texting"
+        sender = type(self.sms.sender).__name__ if self.sms and self.sms.available else None
+        texting = {"FakeSender": "fake texting", "TwilioSender": "Twilio texting"}.get(
+            sender, "no texting")
         return f"agent {self.agent_id}, {texting}"
 
     # ---- entry -----------------------------------------------------------
@@ -393,7 +390,7 @@ class GuardianController:
                 return result
             return run
 
-        return {"get_status": guarded(lambda _p: self.status()),
+        return {"get_status": guarded(lambda _p: f"{self.status()} {self.session.trail_text()}"),
                 "describe_scene": guarded(lambda _p: self.describe_scene()),
                 "prepare_sms": guarded(self._prepare_sms)}
 
@@ -423,7 +420,7 @@ class GuardianController:
     def _prepare_sms(self, parameters):
         if self.sms is None:
             return "Texting isn't available on this device right now. Tell the user."
-        return self.sms.prepare(parameters.get("note", ""), self.session.observation_text())
+        return self.sms.prepare(parameters.get("note", ""), self.session.trail_text())
 
     def speak_local(self, text):
         """SMS previews and results: the device's own voice, above the agent."""

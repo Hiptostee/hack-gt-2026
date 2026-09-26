@@ -4,11 +4,17 @@ The agent can only prepare a draft. The device reads the preview itself, and
 only a clear yes from a push-to-talk turn that started after the preview ended
 sends it, once. Nothing the model says can authorize a send.
 """
+import base64
+import json
 import re
+import socket
 import sys
 import threading
 import time
 from dataclasses import dataclass, field
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 DRAFT_TTL = 60.0
 MAX_SENDS = 3
@@ -42,6 +48,89 @@ class FakeSender:
     def send(self, to_number, text):
         print(f"[fake sms] to {to_number or '(no number)'}: {text}", flush=True)
         return {"status": "submitted", "id": "fake"}
+
+
+class TwilioSender:
+    """Twilio Messages REST API over urllib. One request per send, never retried:
+    a timeout after the request left may mean the text went out."""
+    can_check = True
+    API = "https://api.twilio.com/2010-04-01/Accounts/"
+    SUBMITTED = {"accepted", "scheduled", "queued", "sending", "sent"}
+
+    def __init__(self, account_sid, auth_token, from_number, timeout=10.0):
+        self.account_sid = account_sid
+        self.from_number = from_number
+        self.timeout = timeout
+        token = base64.b64encode(f"{account_sid}:{auth_token}".encode()).decode()
+        self.headers = {"Authorization": "Basic " + token}
+
+    def _call(self, path, form=None):
+        data = urlencode(form).encode() if form is not None else None
+        request = Request(self.API + self.account_sid + path, data=data, headers=self.headers,
+                          method="POST" if data else "GET")
+        with urlopen(request, timeout=self.timeout) as response:
+            return json.load(response)
+
+    def send(self, to_number, text):
+        if not to_number:
+            return {"status": "failed"}
+        try:
+            reply = self._call("/Messages.json",
+                               {"To": to_number, "From": self.from_number, "Body": text})
+        except HTTPError as error:
+            detail = error.read()[:300].decode("utf-8", "replace")
+            print(f"Twilio {error.code}: {detail}", file=sys.stderr)
+            # 4xx: Twilio refused it (bad number, unverified trial recipient).
+            # 5xx: it may or may not have been accepted.
+            return {"status": "failed" if error.code < 500 else "unknown"}
+        except (TimeoutError, socket.timeout):
+            return {"status": "unknown"}
+        except URLError as error:
+            if isinstance(error.reason, (TimeoutError, socket.timeout)):
+                return {"status": "unknown"}
+            print(f"Twilio unreachable: {error.reason}", file=sys.stderr)
+            return {"status": "failed"}  # Never reached Twilio.
+        status = reply.get("status", "")
+        if status == "delivered":
+            outcome = "delivered"
+        elif status in self.SUBMITTED:
+            outcome = "submitted"
+        elif status in ("failed", "undelivered", "canceled"):
+            outcome = "failed"
+        else:
+            outcome = "unknown"
+        return {"status": outcome, "id": reply.get("sid")}
+
+    def check(self, message_id):
+        try:
+            status = self._call(f"/Messages/{message_id}.json").get("status", "")
+        except (HTTPError, URLError, OSError, ValueError):
+            return None
+        if status == "delivered":
+            return "delivered"
+        if status in ("failed", "undelivered"):
+            return "failed"
+        return None
+
+
+def sender_from_env(env):
+    """GUARDIAN_SMS selects the sender; anything missing leaves texting off."""
+    mode = env.get("GUARDIAN_SMS", "").lower()
+    if mode == "fake":
+        return FakeSender()
+    if mode == "twilio":
+        names = ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER",
+                 "GUARDIAN_CONTACT_NUMBER")
+        missing = [name for name in names if not env.get(name)]
+        if missing:
+            print(f"GUARDIAN_SMS=twilio but {', '.join(missing)} unset; texting disabled.",
+                  file=sys.stderr)
+            return None
+        return TwilioSender(env["TWILIO_ACCOUNT_SID"], env["TWILIO_AUTH_TOKEN"],
+                            env["TWILIO_FROM_NUMBER"])
+    if mode:
+        print(f"GUARDIAN_SMS={mode!r} is not fake or twilio; texting disabled.", file=sys.stderr)
+    return None
 
 
 class SmsGate:
