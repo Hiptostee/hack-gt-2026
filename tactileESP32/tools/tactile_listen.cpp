@@ -26,6 +26,7 @@
 #include <string>
 
 #include "tactile_protocol.h"
+#include "cli_parse.hpp"
 
 namespace {
 
@@ -63,6 +64,7 @@ struct Window {
   uint64_t malformed = 0;
   double max_gap_ms = 0;
   double total_gap_ms = 0;
+  uint64_t gap_samples = 0;
 };
 
 }  // namespace
@@ -73,7 +75,10 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--port" && i + 1 < argc) {
-      port = static_cast<uint16_t>(std::atoi(argv[++i]));
+      if (!tactile::parse_port(argv[++i], &port)) {
+        std::fprintf(stderr, "port must be an integer in 1..65535\n");
+        return 2;
+      }
     } else if (arg == "--verbose") {
       verbose = true;
     } else {
@@ -111,15 +116,18 @@ int main(int argc, char** argv) {
   uint8_t state = 0;
   Window window;
 
-  while (!g_interrupted) {
-    const Clock::time_point now = Clock::now();
-
+  auto check_failsafe = [&](Clock::time_point now) {
     if (have_packet && !in_failsafe && now - last_packet >= failsafe) {
       in_failsafe = true;
       state = 0;
       std::fprintf(stderr, "[%9.3f] FAILSAFE: no packet for %.0f ms -> neutral\n", since_start(now),
                    millis(now - last_packet));
     }
+  };
+
+  while (!g_interrupted) {
+    const Clock::time_point now = Clock::now();
+    check_failsafe(now);
     if (now >= next_report) {
       const uint64_t expected = window.accepted + window.lost;
       std::fprintf(stderr,
@@ -130,7 +138,7 @@ int main(int argc, char** argv) {
                    expected ? 100.0 * window.lost / expected : 0.0,
                    static_cast<unsigned long long>(window.stale),
                    static_cast<unsigned long long>(window.malformed),
-                   window.accepted > 1 ? window.total_gap_ms / (window.accepted - 1) : 0.0,
+                   window.gap_samples ? window.total_gap_ms / window.gap_samples : 0.0,
                    window.max_gap_ms);
       window = Window{};
       next_report = now + std::chrono::seconds(5);
@@ -151,6 +159,7 @@ int main(int argc, char** argv) {
                                       reinterpret_cast<sockaddr*>(&from), &from_len);
     if (length < 0) continue;
     const Clock::time_point arrival = Clock::now();
+    check_failsafe(arrival);
 
     uint8_t seq = 0;
     uint8_t flags = 0;
@@ -169,6 +178,7 @@ int main(int argc, char** argv) {
       window.lost += static_cast<uint8_t>(seq - last_seq) - 1;
       const double gap = millis(arrival - last_packet);
       window.total_gap_ms += gap;
+      ++window.gap_samples;
       window.max_gap_ms = std::max(window.max_gap_ms, gap);
     }
     ++window.accepted;

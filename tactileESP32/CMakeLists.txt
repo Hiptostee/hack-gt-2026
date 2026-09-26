@@ -29,3 +29,20 @@ enable_testing()
 add_executable(test_tactile test/test_tactile.cpp)
 target_link_libraries(test_tactile PRIVATE tactile_link)
 add_test(NAME test_tactile COMMAND test_tactile)
+
+foreach(side IN ITEMS 0 1)
+  add_executable(test_hand_${side} test/test_hand.cpp)
+  target_include_directories(test_hand_${side} PRIVATE test/arduino protocol)
+  target_compile_definitions(test_hand_${side} PRIVATE TACTILE_HAND_RIGHT=${side})
+  target_compile_options(test_hand_${side} PRIVATE -Wall -Wextra)
+  add_test(NAME test_hand_${side} COMMAND test_hand_${side})
+endforeach()
+set_tests_properties(test_tactile test_hand_0 test_hand_1 PROPERTIES TIMEOUT 10)
+
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME test_tools COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_tools.py
+    $<TARGET_FILE:tactile_send> $<TARGET_FILE:tactile_listen>)
+  set_tests_properties(test_tools PROPERTIES TIMEOUT 30)
+endif()

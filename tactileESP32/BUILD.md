@@ -35,6 +35,13 @@ This produces:
 
 This part doesn't depend on ROS or Docker.
 
+CTest runs the Pi library tests and simulated left/right firmware tests. If Python 3
+is available when CMake configures, it also runs `test_tools` (four tests total),
+covering the CLI, two-hand loopback delivery, signal shutdown, and listener reports.
+Python is only needed for that optional test; the Pi runtime remains C++.
+These tests need permission to bind local UDP sockets. Firmware simulation uses
+test doubles for Arduino/Wi-Fi and does not replace testing on real boards.
+
 **macOS (development only):** run `xcode-select --install` and `brew install cmake`,
 then use the same commands as above.
 
@@ -174,6 +181,8 @@ The sketch folder contains `tactile_protocol.h`, which is a symlink to
    a max gap well under 500 ms, and RSSI better than about −70 dBm.
 
 To control it by hand: run `./build/tactile_send`, then type `f`, `l`, `r`, `n` (rest), `s` (stats) or `q`.
+`--rate HZ` accepts finite values with `2 < HZ <= 1000`; slower rates would reach
+the 500 ms receiver failsafe between packets. Keep 20 Hz for normal use.
 
 ### Testing without the ESP32s
 

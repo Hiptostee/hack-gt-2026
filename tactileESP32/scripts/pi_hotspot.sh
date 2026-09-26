@@ -25,6 +25,15 @@ case "${1:-}" in
 
   up)
     PSK="${TACTILE_AP_PSK:?set TACTILE_AP_PSK to a WPA2 password of 8-63 characters}"
+    # Validate before replacing a working connection.
+    if [ "${#PSK}" -lt 8 ] || [ "${#PSK}" -gt 63 ]; then
+      echo "TACTILE_AP_PSK must contain 8-63 characters" >&2
+      exit 2
+    fi
+    case "$CHANNEL" in
+      1|6|11) ;;
+      *) echo "TACTILE_AP_CHANNEL must be 1, 6 or 11" >&2; exit 2 ;;
+    esac
     if nmcli -t -f NAME connection show | grep -qx "$CONNECTION"; then
       nmcli connection delete "$CONNECTION" >/dev/null
     fi

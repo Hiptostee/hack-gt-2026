@@ -45,9 +45,13 @@ std::vector<Target> default_targets() {
 TactileLink::TactileLink(LinkConfig config, EventHandler on_event)
     : config_(std::move(config)), on_event_(std::move(on_event)) {
   if (config_.targets.empty()) throw std::invalid_argument("no targets configured");
-  if (config_.period.count() <= 0) throw std::invalid_argument("period must be positive");
+  if (config_.period.count() <= 0 || config_.period.count() >= kFailsafeTimeoutMs) {
+    throw std::invalid_argument("period must be positive and shorter than the receiver failsafe");
+  }
+  if (config_.neutral_packets_on_stop < 0) throw std::invalid_argument("negative neutral burst count");
 
   for (const Target& target : config_.targets) {
+    if (target.port == 0) throw std::invalid_argument("zero UDP port for " + target.name);
     Endpoint endpoint;
     endpoint.name = target.name;
     endpoint.stats.name = target.name;
@@ -64,12 +68,13 @@ TactileLink::TactileLink(LinkConfig config, EventHandler on_event)
 
   // Best effort: ask for the Wi-Fi voice access category (WMM AC_VO) so our
   // tiny packets are queued ahead of bulk traffic such as VNC or SSH.
+  // Linux IP_TOS also sets sk_priority, so apply SO_PRIORITY afterwards.
+  int tos = 0xB8;  // DSCP EF
+  setsockopt(socket_, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
 #ifdef SO_PRIORITY
   int priority = 6;
   setsockopt(socket_, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 #endif
-  int tos = 0xB8;  // DSCP EF
-  setsockopt(socket_, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
 }
 
 TactileLink::~TactileLink() {
@@ -78,6 +83,7 @@ TactileLink::~TactileLink() {
 }
 
 void TactileLink::start() {
+  std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
   std::lock_guard<std::mutex> lock(mutex_);
   if (thread_.joinable()) return;
   stopping_ = false;
@@ -86,6 +92,7 @@ void TactileLink::start() {
 }
 
 void TactileLink::stop() {
+  std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!thread_.joinable()) return;

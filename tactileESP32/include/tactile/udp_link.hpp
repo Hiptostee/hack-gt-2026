@@ -67,10 +67,12 @@ struct TargetStats {
 class TactileLink {
  public:
   // Events are delivered on the sender thread; the handler must be quick and
-  // thread-safe with respect to the caller's own code.
+  // thread-safe with respect to the caller's own code. It must not throw or
+  // call start()/stop()/destroy the link (those join this thread).
   using EventHandler = std::function<void(const Event&)>;
 
-  // Throws std::invalid_argument for a bad target address and
+  // Throws std::invalid_argument for bad targets, a period outside 1..499 ms,
+  // or a negative neutral burst count, and
   // std::system_error if the socket cannot be created.
   explicit TactileLink(LinkConfig config, EventHandler on_event = nullptr);
   ~TactileLink();
@@ -109,6 +111,8 @@ class TactileLink {
   bool changed_ = false;
   bool stopping_ = false;
   std::thread thread_;
+  // Serializes lifecycle calls, including the join outside mutex_.
+  std::mutex lifecycle_mutex_;
 
   // Sender thread only, apart from stats() which takes stats_mutex_.
   uint8_t seq_ = 0;

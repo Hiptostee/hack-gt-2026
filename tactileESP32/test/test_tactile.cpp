@@ -8,12 +8,16 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <stdexcept>
 #include <vector>
 
 #include "tactile/udp_link.hpp"
 #include "tactile_protocol.h"
+#include "../tools/cli_parse.hpp"
 
 namespace {
 
@@ -99,6 +103,31 @@ void test_seq_ordering() {
   CHECK(!tactile::seq_is_newer(250, 10));
 }
 
+void test_configuration_and_cli_numbers() {
+  uint16_t port = 0;
+  for (const char* text : {"", "0", "-1", "65536", "4210junk", "1.5", "999999999999999999999"}) {
+    CHECK(!tactile::parse_port(text, &port));
+  }
+  CHECK(tactile::parse_port("4210", &port) && port == 4210);
+  double rate = 0;
+  for (const char* text : {"", "nan", "inf", "1e-300", "1e300", "20junk", "0", "2", "1001"}) {
+    CHECK(!tactile::parse_rate(text, &rate));
+  }
+  CHECK(tactile::parse_rate("20.5", &rate) && rate == 20.5);
+  for (int invalid = 0; invalid < 5; ++invalid) {
+    tactile::LinkConfig config;
+    if (invalid == 0) config.targets.clear();
+    if (invalid == 1) config.targets[0].port = 0;
+    if (invalid == 2) config.period = std::chrono::milliseconds(0);
+    if (invalid == 3) config.period = std::chrono::milliseconds(tactile::kFailsafeTimeoutMs);
+    if (invalid == 4) config.neutral_packets_on_stop = -1;
+    bool rejected = false;
+    try { tactile::TactileLink link(config); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    CHECK(rejected);
+  }
+}
+
 // Receives packets on a loopback socket for up to `timeout`.
 std::vector<std::pair<uint8_t, std::chrono::steady_clock::time_point>> receive(
     int sock, std::chrono::milliseconds timeout) {
@@ -127,7 +156,12 @@ void test_link_over_loopback() {
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   address.sin_port = 0;
-  CHECK(::bind(sock, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0);
+  if (::bind(sock, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0) {
+    std::perror("loopback bind");
+    CHECK(false);
+    ::close(sock);
+    return;
+  }
   socklen_t length = sizeof(address);
   ::getsockname(sock, reinterpret_cast<sockaddr*>(&address), &length);
 
@@ -141,15 +175,12 @@ void test_link_over_loopback() {
   CHECK(packets.size() >= 8 && packets.size() <= 12);
   for (const auto& packet : packets) CHECK(packet.first == 0);
 
-  // A change is sent at once, not on the next tick.
-  const auto before = std::chrono::steady_clock::now();
+  // A neutral tick can already be queued when the command is changed.
   CHECK(link.try_set(make(true, false, false)));
-  packets = receive(sock, std::chrono::milliseconds(30));
-  CHECK(!packets.empty());
-  if (!packets.empty()) {
-    CHECK(packets.front().first == tactile::kFront);
-    CHECK(packets.front().second - before < std::chrono::milliseconds(20));
-  }
+  packets = receive(sock, std::chrono::milliseconds(100));
+  CHECK(std::any_of(packets.begin(), packets.end(), [](const auto& packet) {
+    return packet.first == tactile::kFront;
+  }));
 
   // A rejected command leaves the state alone.
   CHECK(!link.try_set(make(true, true, false)));
@@ -163,6 +194,28 @@ void test_link_over_loopback() {
 
   const auto stats = link.stats();
   CHECK(stats.size() == 1 && stats[0].failed == 0 && stats[0].sent > 0);
+
+  // With a 400 ms tick, a command just after the initial packet must still
+  // arrive within 200 ms. This separates immediate sends from scheduled ticks.
+  config.period = std::chrono::milliseconds(400);
+  tactile::TactileLink slow_link(config);
+  slow_link.start();
+  packets = receive(sock, std::chrono::milliseconds(50));
+  CHECK(packets.size() == 1);
+  CHECK(slow_link.try_set(make(false, true, false)));
+  packets = receive(sock, std::chrono::milliseconds(200));
+  CHECK(packets.size() == 1 && packets[0].first == tactile::kLeft);
+
+  // Concurrent stops must join the same worker exactly once.
+  std::atomic<bool> go{false};
+  auto stop = [&] { while (!go.load()) std::this_thread::yield(); slow_link.stop(); };
+  std::thread first(stop), second(stop);
+  go = true;
+  first.join();
+  second.join();
+  packets = receive(sock, std::chrono::milliseconds(50));
+  CHECK(packets.size() == 3);
+  for (const auto& packet : packets) CHECK(packet.first == 0);
   ::close(sock);
 }
 
@@ -173,6 +226,7 @@ int main() {
   test_packet_round_trip();
   test_decode_rejects_bad_packets();
   test_seq_ordering();
+  test_configuration_and_cli_numbers();
   test_link_over_loopback();
 
   if (g_failures) {

@@ -11,20 +11,23 @@
 //   q               quit
 
 #include <signal.h>
+#include <poll.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <mutex>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <vector>
 
 #include "tactile/udp_link.hpp"
 #include "tactile_protocol.h"
+#include "cli_parse.hpp"
 
 namespace {
 
@@ -77,10 +80,7 @@ bool parse_target(const std::string& name, const std::string& text, tactile::Tar
   const std::string::size_type colon = text.find(':');
   target->ip = text.substr(0, colon);
   if (colon == std::string::npos) return true;
-  const int port = std::atoi(text.c_str() + colon + 1);
-  if (port <= 0 || port > 65535) return false;
-  target->port = static_cast<uint16_t>(port);
-  return true;
+  return tactile::parse_port(text.substr(colon + 1), &target->port);
 }
 
 // Returns false for characters other than f, l, r.
@@ -109,7 +109,7 @@ void print_stats(const tactile::TactileLink& link) {
 void usage(const char* program) {
   std::fprintf(stderr,
                "usage: %s [--left IP[:PORT]] [--right IP[:PORT]] [--rate HZ] [--demo] [--trace]\n"
-               "  defaults: left 10.42.0.2:%u, right 10.42.0.3:%u, rate 20 Hz\n",
+               "  defaults: left 10.42.0.2:%u, right 10.42.0.3:%u, rate 20 Hz (2 < HZ <= 1000)\n",
                program, tactile::kUdpPort, tactile::kUdpPort);
 }
 
@@ -129,8 +129,34 @@ void run_demo(tactile::TactileLink& link) {
 }
 
 void run_interactive(tactile::TactileLink& link) {
-  std::string line;
-  while (!g_interrupted && std::getline(std::cin, line)) {
+  std::string pending;
+  bool eof = false;
+  while (!g_interrupted) {
+    auto newline = pending.find('\n');
+    if (newline == std::string::npos && !eof) {
+      // A process signal may reach the sender thread instead of interrupting
+      // stdin. Poll with a timeout, and never block waiting for a partial line.
+      pollfd input{STDIN_FILENO, POLLIN, 0};
+      const int ready = ::poll(&input, 1, 100);
+      if (ready < 0) {
+        if (errno == EINTR) continue;
+        throw std::system_error(errno, std::generic_category(), "poll stdin");
+      }
+      if (!ready) continue;
+      char buffer[256];
+      const ssize_t count = ::read(STDIN_FILENO, buffer, sizeof(buffer));
+      if (count < 0) {
+        if (errno == EINTR) continue;
+        throw std::system_error(errno, std::generic_category(), "read stdin");
+      }
+      if (count == 0) eof = true;
+      else pending.append(buffer, static_cast<size_t>(count));
+      continue;
+    }
+    if (pending.empty() && eof) break;
+    const std::string::size_type consumed = newline == std::string::npos ? pending.size() : newline + 1;
+    std::string line = pending.substr(0, newline);
+    pending.erase(0, consumed);
     if (line.empty()) continue;
     if (line == "q") break;
     if (line == "s") {
@@ -169,8 +195,8 @@ int main(int argc, char** argv) {
       }
       config.targets[name == "left" ? 0 : 1] = target;
     } else if (arg == "--rate" && has_value) {
-      const double hz = std::atof(argv[++i]);
-      if (hz <= 0 || hz > 1000) {
+      double hz = 0;
+      if (!tactile::parse_rate(argv[++i], &hz)) {
         usage(argv[0]);
         return 2;
       }

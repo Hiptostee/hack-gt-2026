@@ -34,6 +34,9 @@ const IPAddress kSubnet(255, 255, 255, 0);
 // If auto-reconnect has not brought Wi-Fi back after this long, start over.
 const uint32_t kReconnectRetryMs = 10000;
 const uint32_t kReportPeriodMs = 5000;
+const uint32_t kUdpRetryMs = 1000;
+// Bound receive work so a busy socket cannot starve PWM and the failsafe.
+const int kMaxPacketsPerLoop = 64;
 
 // 180-degree servo: the pulse width sets the arm angle. While a direction is
 // active the arm sweeps back and forth around the rest angle along a sine, so
@@ -58,6 +61,8 @@ struct Stats {
 WiFiUDP udp;
 bool wifi_up = false;
 uint32_t wifi_attempt_ms = 0;
+bool udp_ready = false;
+uint32_t udp_attempt_ms = 0;
 
 bool receiving = false;  // a packet arrived since the last failsafe
 uint8_t last_seq = 0;
@@ -152,31 +157,50 @@ void maintain_wifi(uint32_t now) {
     // Modem sleep adds 100-300 ms of receive latency; keep the radio awake.
     WiFi.setSleep(false);
     udp.stop();
-    udp.begin(tactile::kUdpPort);
+    udp_ready = false;
     LOG("wifi up: %s, channel %d, rssi %d dBm", WiFi.localIP().toString().c_str(),
         static_cast<int>(WiFi.channel()), WiFi.RSSI());
   } else if (!up && wifi_up) {
     LOG("wifi lost -> rest");
     receiving = false;
     apply(0, now);
+    udp.stop();
+    udp_ready = false;
     wifi_attempt_ms = now;
   } else if (!up && now - wifi_attempt_ms >= kReconnectRetryMs) {
     LOG("wifi still down, retrying");
     start_wifi(now);
   }
+  if (up && !udp_ready && (!wifi_up || now - udp_attempt_ms >= kUdpRetryMs)) {
+    udp_attempt_ms = now;
+    udp_ready = udp.begin(tactile::kUdpPort) != 0;
+    if (!udp_ready) LOG("UDP bind failed, retrying in 1 s");
+  }
   wifi_up = up;
 }
 
-void receive_packets(uint32_t now) {
-  if (!wifi_up) return;
-  int length;
-  while ((length = udp.parsePacket()) > 0) {
-    uint8_t buffer[tactile::kPacketSize];
-    udp.read(buffer, sizeof(buffer));
+void check_failsafe(uint32_t now);
+
+void receive_packets() {
+  if (!wifi_up || !udp_ready) return;
+  for (int i = 0; i < kMaxPacketsPerLoop; ++i) {
+    const int length = udp.parsePacket();
+    if (length <= 0) break;
+    uint8_t buffer[tactile::kPacketSize] = {};
+    const int bytes_read = udp.read(buffer, sizeof(buffer));
+    // parsePacket() refuses to advance while this datagram has unread bytes.
+    // Drain the remainder even when the packet will be rejected.
+    uint8_t discard[64];
+    while (udp.available() > 0) udp.read(discard, sizeof(discard));
+
+    const uint32_t now = millis();
+    // Expire BEFORE comparing seq: a restarted sender may use any counter.
+    check_failsafe(now);
 
     uint8_t seq = 0;
     uint8_t flags = 0;
-    if (!tactile::decode_packet(buffer, static_cast<size_t>(length), &seq, &flags)) {
+    if (bytes_read != static_cast<int>(sizeof(buffer)) ||
+        !tactile::decode_packet(buffer, static_cast<size_t>(length), &seq, &flags)) {
       ++stats.malformed;
       continue;
     }
@@ -258,9 +282,10 @@ void hand_setup() {
 }
 
 void hand_loop() {
+  maintain_wifi(millis());
+  check_failsafe(millis());
+  receive_packets();
   const uint32_t now = millis();
-  maintain_wifi(now);
-  receive_packets(now);
   check_failsafe(now);
   update_servo(now);
   report(now);

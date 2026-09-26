@@ -104,6 +104,13 @@ stopped at compile time from ever reaching the packet encoder. `try_set()` is a
 shortcut for validating and then setting. A rejected request leaves the current
 state unchanged.
 
+`LinkConfig` rejects port 0, negative stop-burst counts, and send periods outside
+1–499 ms (the period must be shorter than the receiver failsafe). `--rate` accepts
+finite numbers greater than 2 and at most 1000 Hz; 20 Hz remains the default.
+Lifecycle calls are serialized, including concurrent `stop()` calls. Event handlers
+run on the sender thread: they must be quick, must not throw, and must not call
+`start()`, `stop()`, or destroy the link.
+
 **Sending behaviour**
 
 | Rule | Why |
@@ -139,10 +146,12 @@ boards; `TACTILE_HAND_RIGHT` picks the side. Setup and flashing are in
 2. **Power saving off:** `WiFi.setSleep(false)` at startup and again on every
    (re)connect. The default modem-sleep mode adds 100–300 ms of latency.
 3. **Reconnect:** uses the core's auto-reconnect, and starts over after 10 s without Wi-Fi.
-   The servo is at rest while Wi-Fi is down.
+   The servo is at rest while Wi-Fi is down. A failed UDP bind is retried every second.
 4. **Receive:** UDP 4210, parsed with `tactile::decode_packet`. Packets that aren't
    newer by `seq_is_newer` are dropped. Any seq is accepted after a failsafe.
-   All queued packets are read on each loop, so the servo acts on the newest one.
+   Queued packets are drained in batches of at most 64 per loop, so sustained traffic
+   cannot indefinitely delay servo updates. Oversized datagrams are fully discarded.
+   Timeout expiry is checked before sequence comparison, including at packet arrival.
 5. **Failsafe:** no valid packet for 500 ms (`kFailsafeTimeoutMs`) → the servo returns to rest.
 6. **Servo:** a 180° SG90 on GPIO 18, driven by the ESP32's LEDC PWM at 50 Hz with
    one update per 20 ms frame.
