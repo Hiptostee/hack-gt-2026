@@ -148,19 +148,16 @@ def generate_launch_description():
                 "enable_depth": "true",
                 "enable_sync": "true",
                 "align_depth.enable": "true",
-                # ICP consumes a geometrically filtered depth cloud. Keep this
-                # disabled unless ICP is requested because cloud generation is
-                # a meaningful extra load on a Raspberry Pi.
-                "pointcloud.enable": enable_icp,
+                # Generate XYZ in a separate ROS node: enabling the native
+                # NEON pointcloud path crashes the user's ARM camera process.
+                "pointcloud.enable": "false",
                 "pointcloud.allow_no_texture_points": "true",
                 "pointcloud.ordered_pc": "false",
                 "rgb_camera.color_profile": camera_profile,
                 "depth_module.depth_profile": camera_profile,
                 "rgb_camera.enable_auto_exposure": "false",
                 "depth_module.enable_auto_exposure": "false",
-                # ARM librealsense can name its filter Pointcloud (NEON),
-                # yielding pointcloud__neon_.* ROS parameters. rs_launch does
-                # not forward unknown launch arguments, but forwards YAML keys.
+                # The ICP YAML explicitly disables both native filter names.
                 "config_file": PathJoinSubstitution([
                     mapper_share, "config", PythonExpression([
                         "'realsense_motion_icp.yaml' if '", enable_icp,
@@ -255,6 +252,32 @@ def generate_launch_description():
             arguments=["--ros-args", "--log-level", "info"],
         ),
         Node(
+            package="rtabmap_util",
+            executable="point_cloud_xyz",
+            name="icp_depth_cloud",
+            namespace="rtabmap",
+            output="screen",
+            condition=IfCondition(enable_icp),
+            parameters=[{
+                "approx_sync": False,
+                "qos": 2,
+                "qos_camera_info": 2,
+                "topic_queue_size": 2,
+                "sync_queue_size": 5,
+                # Project every fourth pixel in each dimension (19,200
+                # candidates at 640x480, rather than 307,200 XYZRGB points).
+                "decimation": 4,
+                "min_depth": 0.35,
+                "max_depth": 3.0,
+                "filter_nans": True,
+            }],
+            remappings=[
+                ("depth/image", "/camera/aligned_depth_to_color/image_raw"),
+                ("depth/camera_info", "/camera/color/camera_info"),
+                ("cloud", "/icp/points"),
+            ],
+        ),
+        Node(
             package="rtabmap_odom",
             executable="icp_odometry",
             name="icp_odometry",
@@ -269,10 +292,10 @@ def generate_launch_description():
                 "wait_for_transform": 0.2,
                 "qos": 2,
                 "topic_queue_size": 2,
-                # Reduce the 307k-point D415 cloud before normal estimation.
+                # The cloud generator already decimates the depth image.
                 # Voxelize before normal estimation. The local-map cap bounds
                 # matching cost; scan_cloud_max_points is NOT a point limiter.
-                "scan_downsampling_step": 2,
+                "scan_downsampling_step": 1,
                 "scan_range_min": 0.35,
                 "scan_range_max": 3.0,
                 "scan_voxel_size": ParameterValue(icp_voxel_size, value_type=float),
@@ -299,7 +322,7 @@ def generate_launch_description():
                 "Icp/CorrespondenceRatio": "0.20",
             }],
             remappings=[
-                ("scan_cloud", "/camera/depth/color/points"),
+                ("scan_cloud", "/icp/points"),
                 ("odom", "/icp_odom"),
             ],
             arguments=["--ros-args", "--log-level", "info"],
