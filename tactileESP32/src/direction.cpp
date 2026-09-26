@@ -6,10 +6,8 @@ namespace tactile {
 
 const char* to_string(Rejection rejection) {
   switch (rejection) {
-    case Rejection::kFrontAndBack:
-      return "front and back cannot both be set";
-    case Rejection::kLeftAndRight:
-      return "left and right cannot both be set";
+    case Rejection::kMultipleDirections:
+      return "only one direction at a time";
   }
   return "unknown rejection";
 }
@@ -17,25 +15,19 @@ const char* to_string(Rejection rejection) {
 Direction ValidDirection::direction() const {
   Direction direction;
   direction.front = flags_ & kFront;
-  direction.back = flags_ & kBack;
   direction.left = flags_ & kLeft;
   direction.right = flags_ & kRight;
   return direction;
 }
 
 std::optional<ValidDirection> validate(const Direction& direction, Rejection* why) {
-  if (direction.front && direction.back) {
-    if (why) *why = Rejection::kFrontAndBack;
-    return std::nullopt;
-  }
-  if (direction.left && direction.right) {
-    if (why) *why = Rejection::kLeftAndRight;
+  if (direction.front + direction.left + direction.right > 1) {
+    if (why) *why = Rejection::kMultipleDirections;
     return std::nullopt;
   }
 
   uint8_t flags = 0;
   if (direction.front) flags |= kFront;
-  if (direction.back) flags |= kBack;
   if (direction.left) flags |= kLeft;
   if (direction.right) flags |= kRight;
   return ValidDirection(flags);
@@ -49,7 +41,6 @@ std::string flags_to_string(uint8_t flags) {
     text += name;
   };
   if (flags & kFront) append("front");
-  if (flags & kBack) append("back");
   if (flags & kLeft) append("left");
   if (flags & kRight) append("right");
   return text;
@@ -58,7 +49,6 @@ std::string flags_to_string(uint8_t flags) {
 std::string to_string(const Direction& direction) {
   uint8_t flags = 0;
   if (direction.front) flags |= kFront;
-  if (direction.back) flags |= kBack;
   if (direction.left) flags |= kLeft;
   if (direction.right) flags |= kRight;
   return flags_to_string(flags);

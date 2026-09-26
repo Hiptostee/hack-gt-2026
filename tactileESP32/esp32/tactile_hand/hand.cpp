@@ -1,0 +1,269 @@
+// One hand: Wi-Fi station on the Pi hotspot, UDP receiver, servo driver.
+//
+// Receive rules match tools/tactile_listen.cpp on the Pi side: decode, drop
+// packets whose seq is not newer, return the servo to rest after
+// kFailsafeTimeoutMs without a packet, and accept any seq after a failsafe.
+
+#include "hand.h"
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <math.h>
+
+#include "config.h"
+#include "tactile_protocol.h"
+
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
+#error "Copy secrets.example.h to secrets.h and set the hotspot SSID and password"
+#endif
+
+#define LOG(format, ...) Serial.printf("[%9.3f] " format "\n", millis() / 1000.0, ##__VA_ARGS__)
+
+namespace {
+
+const uint8_t kOwnSide = TACTILE_HAND_RIGHT ? tactile::kRight : tactile::kLeft;
+const char* const kHandName = TACTILE_HAND_RIGHT ? "right" : "left";
+
+const IPAddress kLocalIp(10, 42, 0, TACTILE_HAND_RIGHT ? 3 : 2);
+const IPAddress kGateway(10, 42, 0, 1);
+const IPAddress kSubnet(255, 255, 255, 0);
+
+// If auto-reconnect has not brought Wi-Fi back after this long, start over.
+const uint32_t kReconnectRetryMs = 10000;
+const uint32_t kReportPeriodMs = 5000;
+
+// 180-degree servo: the pulse width sets the arm angle. While a direction is
+// active the arm sweeps back and forth around the rest angle along a sine, so
+// it slows down at the turning points instead of jerking. Otherwise it goes
+// back to rest, and once there the pulses stop so it does not hum when idle.
+const uint32_t kServoHz = 50;
+const uint32_t kServoFrameMs = 1000 / kServoHz;
+const uint8_t kServoResolutionBits = 16;
+const uint32_t kServoPeriodUs = 1000000 / kServoHz;
+#if ESP_ARDUINO_VERSION_MAJOR < 3
+const uint8_t kServoChannel = 0;
+#endif
+
+struct Stats {
+  uint32_t accepted = 0;
+  uint32_t lost = 0;
+  uint32_t stale = 0;
+  uint32_t malformed = 0;
+  uint32_t max_gap_ms = 0;
+};
+
+WiFiUDP udp;
+bool wifi_up = false;
+uint32_t wifi_attempt_ms = 0;
+
+bool receiving = false;  // a packet arrived since the last failsafe
+uint8_t last_seq = 0;
+uint32_t last_packet_ms = 0;
+uint8_t current_flags = 0;
+
+bool sweeping = false;
+uint32_t sweep_start_ms = 0;
+uint32_t rest_since_ms = 0;
+bool released = false;  // at rest with pulses stopped
+uint32_t last_servo_frame_ms = 0;
+
+Stats stats;
+uint32_t next_report_ms = 0;
+
+const char* flags_name(uint8_t flags) {
+  switch (flags) {
+    case 0: return "neutral";
+    case tactile::kFront: return "front";
+    case tactile::kLeft: return "left";
+    case tactile::kRight: return "right";
+  }
+  return "invalid";
+}
+
+// 0 stops the pulses: the servo goes limp where it is.
+void servo_pulse(uint32_t pulse_us) {
+  const uint32_t duty =
+      static_cast<uint64_t>(pulse_us) * ((1u << kServoResolutionBits) - 1) / kServoPeriodUs;
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWrite(TACTILE_SERVO_PIN, duty);
+#else
+  ledcWrite(kServoChannel, duty);
+#endif
+}
+
+uint32_t pulse_for_degrees(float degrees) {
+  degrees = constrain(degrees, 0.0f, 180.0f);
+  return TACTILE_PULSE_0_US +
+         static_cast<uint32_t>((TACTILE_PULSE_180_US - TACTILE_PULSE_0_US) * degrees / 180.0f);
+}
+
+// Called once per 20 ms PWM frame; the servo cannot use updates any faster.
+void update_servo(uint32_t now) {
+  if (now - last_servo_frame_ms < kServoFrameMs) return;
+  last_servo_frame_ms = now;
+
+  if (sweeping) {
+    const float phase =
+        static_cast<float>((now - sweep_start_ms) % TACTILE_SWEEP_PERIOD_MS) / TACTILE_SWEEP_PERIOD_MS;
+    const float degrees = TACTILE_REST_DEG + TACTILE_SWEEP_DEG * sinf(2.0f * PI * phase);
+    servo_pulse(pulse_for_degrees(degrees));
+  } else if (!released) {
+    if (TACTILE_RELEASE_AFTER_MS > 0 && now - rest_since_ms >= TACTILE_RELEASE_AFTER_MS) {
+      servo_pulse(0);
+      released = true;
+    } else {
+      servo_pulse(pulse_for_degrees(TACTILE_REST_DEG));
+    }
+  }
+}
+
+void set_sweeping(bool on, uint32_t now) {
+  if (on == sweeping) return;
+  sweeping = on;
+  if (on) {
+    sweep_start_ms = now;  // the sine starts at the rest angle, so no jump
+    released = false;
+  } else {
+    rest_since_ms = now;
+  }
+  LOG("servo -> %s", on ? "sweep" : "rest");
+}
+
+// front sweeps both hands. A side direction sweeps only that side's hand;
+// the other hand stays at rest.
+void apply(uint8_t flags, uint32_t now) {
+  current_flags = flags;
+  set_sweeping((flags & tactile::kFront) || (flags & kOwnSide), now);
+}
+
+void start_wifi(uint32_t now) {
+  WiFi.disconnect();
+  WiFi.config(kLocalIp, kGateway, kSubnet);
+  WiFi.begin(TACTILE_AP_SSID, TACTILE_AP_PSK);
+  wifi_attempt_ms = now;
+}
+
+void maintain_wifi(uint32_t now) {
+  const bool up = WiFi.status() == WL_CONNECTED;
+  if (up && !wifi_up) {
+    // Modem sleep adds 100-300 ms of receive latency; keep the radio awake.
+    WiFi.setSleep(false);
+    udp.stop();
+    udp.begin(tactile::kUdpPort);
+    LOG("wifi up: %s, channel %d, rssi %d dBm", WiFi.localIP().toString().c_str(),
+        static_cast<int>(WiFi.channel()), WiFi.RSSI());
+  } else if (!up && wifi_up) {
+    LOG("wifi lost -> rest");
+    receiving = false;
+    apply(0, now);
+    wifi_attempt_ms = now;
+  } else if (!up && now - wifi_attempt_ms >= kReconnectRetryMs) {
+    LOG("wifi still down, retrying");
+    start_wifi(now);
+  }
+  wifi_up = up;
+}
+
+void receive_packets(uint32_t now) {
+  if (!wifi_up) return;
+  int length;
+  while ((length = udp.parsePacket()) > 0) {
+    uint8_t buffer[tactile::kPacketSize];
+    udp.read(buffer, sizeof(buffer));
+
+    uint8_t seq = 0;
+    uint8_t flags = 0;
+    if (!tactile::decode_packet(buffer, static_cast<size_t>(length), &seq, &flags)) {
+      ++stats.malformed;
+      continue;
+    }
+    if (receiving && !tactile::seq_is_newer(seq, last_seq)) {
+      ++stats.stale;
+      continue;
+    }
+
+    if (receiving) {
+      stats.lost += static_cast<uint8_t>(seq - last_seq) - 1;
+      stats.max_gap_ms = max(stats.max_gap_ms, now - last_packet_ms);
+    }
+    ++stats.accepted;
+
+    if (!receiving || flags != current_flags) {
+      LOG("state -> %s (seq=%u)", flags_name(flags), seq);
+    }
+    receiving = true;
+    last_seq = seq;
+    last_packet_ms = now;
+    apply(flags, now);
+  }
+}
+
+void check_failsafe(uint32_t now) {
+  if (!receiving || now - last_packet_ms < tactile::kFailsafeTimeoutMs) return;
+  LOG("FAILSAFE: no packet for %lu ms -> rest", static_cast<unsigned long>(now - last_packet_ms));
+  receiving = false;
+  apply(0, now);
+}
+
+void report(uint32_t now) {
+  if (static_cast<int32_t>(now - next_report_ms) < 0) return;
+  next_report_ms = now + kReportPeriodMs;
+  const uint32_t expected = stats.accepted + stats.lost;
+  LOG("5 s: %lu ok, %lu lost (%.1f%%), %lu stale, %lu malformed, max gap %lu ms, rssi %d dBm",
+      static_cast<unsigned long>(stats.accepted), static_cast<unsigned long>(stats.lost),
+      expected ? 100.0 * stats.lost / expected : 0.0, static_cast<unsigned long>(stats.stale),
+      static_cast<unsigned long>(stats.malformed), static_cast<unsigned long>(stats.max_gap_ms),
+      wifi_up ? WiFi.RSSI() : 0);
+  stats = Stats();
+}
+
+void update_led(uint32_t now) {
+  bool on;
+  if (receiving) {
+    on = true;
+  } else if (wifi_up) {
+    on = (now / 500) % 2;
+  } else {
+    on = (now / 100) % 2;
+  }
+  digitalWrite(TACTILE_LED_PIN, on ? HIGH : LOW);
+}
+
+}  // namespace
+
+void hand_setup() {
+  Serial.begin(115200);
+  pinMode(TACTILE_LED_PIN, OUTPUT);
+
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcAttach(TACTILE_SERVO_PIN, kServoHz, kServoResolutionBits);
+#else
+  ledcSetup(kServoChannel, kServoHz, kServoResolutionBits);
+  ledcAttachPin(TACTILE_SERVO_PIN, kServoChannel);
+#endif
+  rest_since_ms = millis();  // move to rest, then release
+
+  LOG("tactile hand: %s, ip %s, servo gpio %d", kHandName, kLocalIp.toString().c_str(),
+      TACTILE_SERVO_PIN);
+
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
+  start_wifi(millis());
+  next_report_ms = millis() + kReportPeriodMs;
+}
+
+void hand_loop() {
+  const uint32_t now = millis();
+  maintain_wifi(now);
+  receive_packets(now);
+  check_failsafe(now);
+  update_servo(now);
+  report(now);
+  update_led(now);
+  delay(1);
+}

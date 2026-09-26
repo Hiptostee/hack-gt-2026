@@ -47,8 +47,8 @@ double millis(Clock::duration duration) {
 std::string flags_to_string(uint8_t flags) {
   if (flags == 0) return "neutral";
   std::string text;
-  const char* names[] = {"front", "back", "left", "right"};
-  for (int bit = 0; bit < 4; ++bit) {
+  const char* names[] = {"front", "left", "right"};
+  for (int bit = 0; bit < 3; ++bit) {
     if (!(flags & (1u << bit))) continue;
     if (!text.empty()) text += '+';
     text += names[bit];

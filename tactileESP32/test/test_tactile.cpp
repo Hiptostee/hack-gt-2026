@@ -30,10 +30,9 @@ int g_failures = 0;
 
 using tactile::Direction;
 
-Direction make(bool front, bool back, bool left, bool right) {
+Direction make(bool front, bool left, bool right) {
   Direction direction;
   direction.front = front;
-  direction.back = back;
   direction.left = left;
   direction.right = right;
   return direction;
@@ -41,54 +40,52 @@ Direction make(bool front, bool back, bool left, bool right) {
 
 void test_validate_all_combinations() {
   int accepted = 0;
-  for (int bits = 0; bits < 16; ++bits) {
-    const Direction direction = make(bits & 1, bits & 2, bits & 4, bits & 8);
+  for (int bits = 0; bits < 8; ++bits) {
+    const Direction direction = make(bits & 1, bits & 2, bits & 4);
     tactile::Rejection why;
     const auto valid = tactile::validate(direction, &why);
-    const bool opposing = (direction.front && direction.back) || (direction.left && direction.right);
-    CHECK(valid.has_value() == !opposing);
+    const bool single_or_none = (bits & (bits - 1)) == 0;
+    CHECK(valid.has_value() == single_or_none);
+    CHECK(tactile::flags_valid(static_cast<uint8_t>(bits)) == single_or_none);
     if (valid) {
       ++accepted;
       CHECK(valid->flags() == bits);
-      CHECK(tactile::flags_valid(valid->flags()));
+    } else {
+      CHECK(why == tactile::Rejection::kMultipleDirections);
     }
   }
-  // Each axis has three states (none, one side, other side): 3 x 3.
-  CHECK(accepted == 9);
-
-  tactile::Rejection why;
-  CHECK(!tactile::validate(make(true, true, false, false), &why));
-  CHECK(why == tactile::Rejection::kFrontAndBack);
-  CHECK(!tactile::validate(make(false, false, true, true), &why));
-  CHECK(why == tactile::Rejection::kLeftAndRight);
+  // Neutral plus the three single directions.
+  CHECK(accepted == 4);
 }
 
 void test_packet_round_trip() {
   uint8_t packet[tactile::kPacketSize];
-  tactile::encode_packet(200, tactile::kFront | tactile::kLeft, packet);
+  tactile::encode_packet(200, tactile::kLeft, packet);
   CHECK(packet[0] == 0xA5);
   CHECK(packet[1] == 200);
-  CHECK(packet[2] == 0x05);
+  CHECK(packet[2] == 0x02);
 
   uint8_t seq = 0;
   uint8_t flags = 0;
   CHECK(tactile::decode_packet(packet, sizeof(packet), &seq, &flags));
   CHECK(seq == 200);
-  CHECK(flags == (tactile::kFront | tactile::kLeft));
+  CHECK(flags == tactile::kLeft);
 }
 
 void test_decode_rejects_bad_packets() {
   uint8_t seq = 0;
   uint8_t flags = 0;
   const uint8_t wrong_magic[] = {0x5A, 1, tactile::kFront};
-  const uint8_t reserved_bit[] = {0xA5, 1, 0x10};
-  const uint8_t front_and_back[] = {0xA5, 1, tactile::kFront | tactile::kBack};
+  const uint8_t reserved_bit[] = {0xA5, 1, 0x08};
+  const uint8_t high_bit[] = {0xA5, 1, 0x80};
   const uint8_t left_and_right[] = {0xA5, 1, tactile::kLeft | tactile::kRight};
+  const uint8_t front_and_left[] = {0xA5, 1, tactile::kFront | tactile::kLeft};
   const uint8_t too_long[] = {0xA5, 1, tactile::kFront, 0};
   CHECK(!tactile::decode_packet(wrong_magic, sizeof(wrong_magic), &seq, &flags));
   CHECK(!tactile::decode_packet(reserved_bit, sizeof(reserved_bit), &seq, &flags));
-  CHECK(!tactile::decode_packet(front_and_back, sizeof(front_and_back), &seq, &flags));
+  CHECK(!tactile::decode_packet(high_bit, sizeof(high_bit), &seq, &flags));
   CHECK(!tactile::decode_packet(left_and_right, sizeof(left_and_right), &seq, &flags));
+  CHECK(!tactile::decode_packet(front_and_left, sizeof(front_and_left), &seq, &flags));
   CHECK(!tactile::decode_packet(too_long, sizeof(too_long), &seq, &flags));
   CHECK(!tactile::decode_packet(too_long, 2, &seq, &flags));
 }
@@ -146,7 +143,7 @@ void test_link_over_loopback() {
 
   // A change is sent at once, not on the next tick.
   const auto before = std::chrono::steady_clock::now();
-  CHECK(link.try_set(make(true, false, false, false)));
+  CHECK(link.try_set(make(true, false, false)));
   packets = receive(sock, std::chrono::milliseconds(30));
   CHECK(!packets.empty());
   if (!packets.empty()) {
@@ -155,7 +152,7 @@ void test_link_over_loopback() {
   }
 
   // A rejected command leaves the state alone.
-  CHECK(!link.try_set(make(true, true, false, false)));
+  CHECK(!link.try_set(make(true, true, false)));
   CHECK(link.current().flags() == tactile::kFront);
 
   // stop() releases the servo with a neutral burst.

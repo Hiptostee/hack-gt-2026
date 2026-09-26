@@ -5,10 +5,10 @@
 //   tactile_send --left 127.0.0.1:4210 --right 127.0.0.1:4211 --trace
 //
 // Interactive commands, one per line:
-//   any combination of f b l r (e.g. "f", "fl", "br")   set direction
-//   n or 0                                              neutral
-//   s                                                   print stats
-//   q                                                   quit
+//   f, l or r       set direction (one at a time; "fl" etc. are rejected)
+//   n or 0          neutral
+//   s               print stats
+//   q               quit
 
 #include <signal.h>
 
@@ -83,13 +83,12 @@ bool parse_target(const std::string& name, const std::string& text, tactile::Tar
   return true;
 }
 
-// Returns false for characters other than f, b, l, r.
+// Returns false for characters other than f, l, r.
 bool parse_direction(const std::string& text, tactile::Direction* direction) {
   *direction = tactile::Direction{};
   for (char c : text) {
     switch (c) {
       case 'f': direction->front = true; break;
-      case 'b': direction->back = true; break;
       case 'l': direction->left = true; break;
       case 'r': direction->right = true; break;
       default: return false;
@@ -115,7 +114,7 @@ void usage(const char* program) {
 }
 
 void run_demo(tactile::TactileLink& link) {
-  const char* steps[] = {"f", "", "b", "", "l", "", "r", ""};
+  const char* steps[] = {"f", "", "l", "", "r", ""};
   while (!g_interrupted) {
     for (const char* step : steps) {
       tactile::Direction direction;
@@ -142,7 +141,7 @@ void run_interactive(tactile::TactileLink& link) {
 
     tactile::Direction direction;
     if (!parse_direction(line, &direction)) {
-      log_line(Clock::now(), "unknown command '" + line + "' (use f/b/l/r, n, s, q)");
+      log_line(Clock::now(), "unknown command '" + line + "' (use f/l/r, n, s, q)");
       continue;
     }
     tactile::Rejection why;

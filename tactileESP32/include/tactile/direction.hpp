@@ -13,14 +13,12 @@ namespace tactile {
 // validate() decides whether it can be sent.
 struct Direction {
   bool front = false;
-  bool back = false;
   bool left = false;
   bool right = false;
 };
 
 enum class Rejection {
-  kFrontAndBack,
-  kLeftAndRight,
+  kMultipleDirections,
 };
 
 const char* to_string(Rejection rejection);
@@ -46,11 +44,11 @@ class ValidDirection {
   friend std::optional<ValidDirection> validate(const Direction& direction, Rejection* why);
 };
 
-// Rejects front+back and left+right. On rejection returns nullopt and, when
-// `why` is non-null, stores the reason.
+// Accepts at most one direction. On rejection returns nullopt and, when `why`
+// is non-null, stores the reason.
 std::optional<ValidDirection> validate(const Direction& direction, Rejection* why = nullptr);
 
-// "neutral", "front", "front+left", ...
+// "neutral", "front", ... ("front+left" for rejected combinations)
 std::string to_string(const Direction& direction);
 std::string flags_to_string(uint8_t flags);
 
