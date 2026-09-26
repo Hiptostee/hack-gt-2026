@@ -35,6 +35,8 @@ public:
     dark_value_threshold_ = declare_parameter<int>("dark_value_threshold", 105);
     minimum_dark_ratio_ = declare_parameter<double>("minimum_dark_ratio", 0.18);
 
+    // Leave CPU time for camera tracking and mapping on the Pi.
+    cv::setNumThreads(2);
     net_ = cv::dnn::readNetFromONNX(model_path_);
     net_.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
     net_.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
@@ -74,8 +76,6 @@ private:
     {
       return;
     }
-    last_inference_ = now;
-
     if (message->encoding != sensor_msgs::image_encodings::RGB8 ||
       message->step < message->width * 3U || message->data.empty())
     {
@@ -92,6 +92,7 @@ private:
     try {
       detections = detect(rgb);
     } catch (const std::exception & error) {
+      last_inference_ = std::chrono::steady_clock::now();
       RCLCPP_ERROR_THROTTLE(
         get_logger(), *get_clock(), 5000, "YOLO inference failed: %s", error.what());
       return;
@@ -131,6 +132,9 @@ private:
     output.data.assign(annotated.datastart, annotated.dataend);
     annotated_publisher_->publish(std::move(output));
     publish_detection_message(message, detections);
+    // Start the cooldown after inference, including when inference is slower
+    // than the configured period.
+    last_inference_ = std::chrono::steady_clock::now();
   }
 
   std::vector<Detection> detect(const cv::Mat & rgb)

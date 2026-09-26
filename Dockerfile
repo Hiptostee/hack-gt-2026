@@ -22,10 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mesa-utils \
     novnc \
     python3-colcon-common-extensions \
+    ros-jazzy-imu-filter-madgwick \
     ros-jazzy-realsense2-camera \
     ros-jazzy-realsense2-description \
     ros-jazzy-rtabmap-ros \
     ros-jazzy-robot-localization \
+    ros-jazzy-rmw-zenoh-cpp \
     ros-jazzy-rviz2 \
     tigervnc-standalone-server \
     tigervnc-tools \

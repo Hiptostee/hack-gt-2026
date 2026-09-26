@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -42,7 +43,7 @@ public:
     obstacle_threshold_ = declare_parameter<int>("obstacle_threshold", 50);
     inflation_radius_ = declare_parameter<double>("inflation_radius", 0.25);
     standoff_distance_ = declare_parameter<double>("standoff_distance", 0.70);
-    max_prediction_age_ = declare_parameter<double>("max_prediction_age", 0.35);
+    max_prediction_age_ = declare_parameter<double>("max_prediction_age", 0.75);
     allow_unknown_ = declare_parameter<bool>("allow_unknown", true);
     preferred_clearance_ = declare_parameter<double>("preferred_clearance", 0.55);
     clearance_weight_ = declare_parameter<double>("clearance_weight", 2.0);
@@ -61,7 +62,12 @@ public:
       std::bind(&BackpackPathPlanner::map_callback, this, _1));
     depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
       "/camera/aligned_depth_to_color/image_raw", rclcpp::SensorDataQoS(),
-      [this](sensor_msgs::msg::Image::ConstSharedPtr msg) {depth_ = msg;});
+      [this](sensor_msgs::msg::Image::ConstSharedPtr msg) {
+        depth_buffer_.push_back(msg);
+        if (depth_buffer_.size() > 150) {
+          depth_buffer_.pop_front();
+        }
+      });
     info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
       "/camera/color/camera_info", rclcpp::SensorDataQoS(),
       [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg) {camera_info_ = msg;});
@@ -72,7 +78,7 @@ public:
       "/yolo/black_backpack", 10,
       std::bind(&BackpackPathPlanner::detection_callback, this, _1));
     visual_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/visual_odom", rclcpp::SensorDataQoS(),
+      "/visual_odom_valid", rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr) {
         last_visual_odom_ = std::chrono::steady_clock::now();
         have_visual_odom_ = true;
@@ -85,11 +91,18 @@ public:
       }
       // Keep routing from the moving wearer to the last observed backpack,
       // even when the detector no longer has it in the current image.
-      if (filtered_target_ && map_ &&
+      if (target_odom_ && map_ &&
         std::chrono::duration<double>(
-          std::chrono::steady_clock::now() - last_replan_).count() >= 0.5)
+          std::chrono::steady_clock::now() - last_plan_attempt_).count() >= 0.5)
       {
-        plan_to(*filtered_target_);
+        const auto target = target_in_current_map();
+        if (target) {
+          goal_pub_->publish(*target);
+          plan_to(*target);
+        } else {
+          clear_path();
+          publish_path_valid(false);
+        }
       }
     });
 
@@ -189,6 +202,17 @@ private:
     return best;
   }
 
+  std::optional<rclcpp::Time> detection_stamp(const std::string & json) const
+  {
+    static const std::regex pattern(R"("stamp":([0-9]+)\.([0-9]{9}))");
+    std::smatch match;
+    if (!std::regex_search(json, match, pattern)) {
+      return std::nullopt;
+    }
+    return rclcpp::Time(
+      std::stoll(match[1]) * 1000000000LL + std::stoll(match[2]), RCL_ROS_TIME);
+  }
+
   std::optional<double> median_depth(const Box & box) const
   {
     if (!depth_ || depth_->data.empty()) {return std::nullopt;}
@@ -219,6 +243,24 @@ private:
     return *middle;
   }
 
+  std::optional<geometry_msgs::msg::PointStamped> target_in_current_map()
+  {
+    if (!target_odom_ || !map_) {return std::nullopt;}
+    try {
+      const auto transform = tf_buffer_.lookupTransform(
+        map_->header.frame_id, "odom", tf2::TimePointZero);
+      geometry_msgs::msg::PointStamped target;
+      tf2::doTransform(*target_odom_, target, transform);
+      target.header.frame_id = map_->header.frame_id;
+      target.header.stamp = now();
+      return target;
+    } catch (const tf2::TransformException & error) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 3000, "Cannot update remembered backpack: %s", error.what());
+      return std::nullopt;
+    }
+  }
+
   void detection_callback(const std_msgs::msg::String::ConstSharedPtr message)
   {
     if (!visual_odometry_fresh()) {
@@ -230,7 +272,25 @@ private:
       return;
     }
     const auto box = parse_best_box(message->data);
-    if (!box || !map_ || !camera_info_ || !depth_) {return;}
+    if (!box || !map_ || !camera_info_ || depth_buffer_.empty()) {return;}
+    const auto stamp = detection_stamp(message->data);
+    if (!stamp) {return;}
+    double closest_age = std::numeric_limits<double>::infinity();
+    sensor_msgs::msg::Image::ConstSharedPtr closest_depth;
+    for (const auto & candidate : depth_buffer_) {
+      const double age = std::abs((rclcpp::Time(candidate->header.stamp) - *stamp).seconds());
+      if (age < closest_age) {
+        closest_age = age;
+        closest_depth = candidate;
+      }
+    }
+    if (closest_age > 0.07) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 3000,
+        "Backpack image has no matching depth frame (nearest %.3f s)", closest_age);
+      return;
+    }
+    depth_ = closest_depth;
     const auto z = median_depth(*box);
     if (!z) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000, "Backpack detected but has no valid depth");
@@ -247,27 +307,30 @@ private:
 
     try {
       const auto transform = tf_buffer_.lookupTransform(
-        map_->header.frame_id, camera_point.header.frame_id, camera_point.header.stamp,
+        "odom", camera_point.header.frame_id, camera_point.header.stamp,
         rclcpp::Duration::from_seconds(0.15));
       geometry_msgs::msg::PointStamped target;
       tf2::doTransform(camera_point, target, transform);
-      target.header.frame_id = map_->header.frame_id;
-      if (!filtered_target_ ||
-        std::hypot(target.point.x - filtered_target_->point.x,
-        target.point.y - filtered_target_->point.y) > 1.0)
+      target.header.frame_id = "odom";
+      if (!target_odom_ ||
+        std::hypot(target.point.x - target_odom_->point.x,
+        target.point.y - target_odom_->point.y) > 1.0)
       {
-        filtered_target_ = target;
+        target_odom_ = target;
       } else {
-        filtered_target_->header = target.header;
-        filtered_target_->point.x += goal_smoothing_alpha_ *
-          (target.point.x - filtered_target_->point.x);
-        filtered_target_->point.y += goal_smoothing_alpha_ *
-          (target.point.y - filtered_target_->point.y);
-        filtered_target_->point.z += goal_smoothing_alpha_ *
-          (target.point.z - filtered_target_->point.z);
+        target_odom_->header = target.header;
+        target_odom_->point.x += goal_smoothing_alpha_ *
+          (target.point.x - target_odom_->point.x);
+        target_odom_->point.y += goal_smoothing_alpha_ *
+          (target.point.y - target_odom_->point.y);
+        target_odom_->point.z += goal_smoothing_alpha_ *
+          (target.point.z - target_odom_->point.z);
       }
-      goal_pub_->publish(*filtered_target_);
-      plan_to(*filtered_target_);
+      const auto current_target = target_in_current_map();
+      if (current_target) {
+        goal_pub_->publish(*current_target);
+        plan_to(*current_target);
+      }
     } catch (const tf2::TransformException & error) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000, "Cannot transform backpack: %s", error.what());
     }
@@ -399,6 +462,9 @@ private:
 
   void plan_to(const geometry_msgs::msg::PointStamped & detected_target)
   {
+    // Limit unsuccessful A* retries too. A target outside the current map
+    // would otherwise trigger a full search on every 50 ms watchdog tick.
+    last_plan_attempt_ = std::chrono::steady_clock::now();
     geometry_msgs::msg::TransformStamped camera_tf;
     try {
       camera_tf = tf_buffer_.lookupTransform(
@@ -516,7 +582,6 @@ private:
     current_path_ = path;
     path_pub_->publish(path);
     publish_path_valid(true);
-    last_replan_ = std::chrono::steady_clock::now();
   }
 
   void image_callback(const sensor_msgs::msg::Image::ConstSharedPtr message)
@@ -601,16 +666,17 @@ private:
   bool have_planning_start_{false};
   bool have_visual_odom_{false};
   std::chrono::steady_clock::time_point last_visual_odom_{};
-  std::chrono::steady_clock::time_point last_replan_{};
+  std::chrono::steady_clock::time_point last_plan_attempt_{};
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
   nav_msgs::msg::OccupancyGrid::ConstSharedPtr map_;
   std::vector<float> clearance_meters_;
   std::vector<bool> blocked_cells_;
   sensor_msgs::msg::Image::ConstSharedPtr depth_;
+  std::deque<sensor_msgs::msg::Image::ConstSharedPtr> depth_buffer_;
   sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info_;
   std::optional<nav_msgs::msg::Path> current_path_;
-  std::optional<geometry_msgs::msg::PointStamped> filtered_target_;
+  std::optional<geometry_msgs::msg::PointStamped> target_odom_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr goal_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr path_valid_pub_;

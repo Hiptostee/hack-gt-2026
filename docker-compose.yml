@@ -22,3 +22,29 @@ services:
       start_period: 30s
     shm_size: "1gb"
     restart: unless-stopped
+
+  rviz-viewer:
+    profiles: ["viewer"]
+    build:
+      context: .
+    image: realsense-rtabmap-poc:jazzy
+    container_name: realsense-rviz-viewer
+    network_mode: host
+    environment:
+      DISPLAY: ":1"
+      VNC_RESOLUTION: "1600x1000"
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-42}"
+      RMW_IMPLEMENTATION: "rmw_zenoh_cpp"
+      ZENOH_ROUTER_CHECK_ATTEMPTS: "30"
+      ZENOH_CONFIG_OVERRIDE: 'mode="client";connect/endpoints=["tcp/${PI_LAN_IP:-127.0.0.1}:7447"]'
+      VIEWER_ONLY: "1"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep rviz2 >/dev/null && pgrep Xvnc >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    shm_size: "1gb"
+    restart: unless-stopped
