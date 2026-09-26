@@ -13,23 +13,25 @@ supply, its current spikes cause brownout resets, and those look like Wi-Fi drop
 
 ## Setup
 
-1. Install the ESP32 core: Arduino Boards Manager → "esp32" by Espressif (3.x;
-   compiled with 3.3.5; not yet run on a board).
+1. Install [PlatformIO](https://platformio.org/install) (`brew install platformio`, or
+   the PlatformIO IDE extension for VS Code). The first build downloads the ESP32
+   platform pinned in `platformio.ini` (pioarduino 55.03.312 = Arduino core 3.3.12).
 2. `cp tactile_hand/secrets.example.h tactile_hand/secrets.h`, then set the same SSID
    and password you used for `scripts/pi_hotspot.sh up`. `secrets.h` is gitignored.
 
 ## Build and flash
 
-With arduino-cli (`brew install arduino-cli`):
+Run these from this folder. The `left` and `right` environments set `TACTILE_HAND_RIGHT`
+for you:
 
 ```bash
-./flash.sh left                              # compile only
-./flash.sh left  /dev/cu.usbserial-XXXX      # flash + serial monitor
-./flash.sh right /dev/cu.usbserial-YYYY
+pio run -e left                                                   # compile only
+pio run -e left  -t upload -t monitor --upload-port /dev/cu.usbserial-XXXX
+pio run -e right -t upload -t monitor --upload-port /dev/cu.usbserial-YYYY
 ```
 
-With the Arduino IDE: open `tactile_hand/tactile_hand.ino`, choose board **ESP32 Dev
-Module**, set `TACTILE_HAND_RIGHT` in `config.h`, and upload. Set it back to 0 afterwards.
+arduino-cli (`./flash.sh left|right [port]`) and the Arduino IDE still work; see
+[../BUILD.md](../BUILD.md), section 3.
 
 `tactile_protocol.h` in the sketch folder is a symlink to
 `../../protocol/tactile_protocol.h`, so the Pi and the ESP32 always share one packet

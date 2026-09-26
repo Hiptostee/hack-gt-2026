@@ -1,5 +1,6 @@
 // Per-board settings. Every value can also be overridden at build time
-// (flash.sh passes TACTILE_HAND_RIGHT), so this file normally stays as is.
+// (the PlatformIO left/right environments and flash.sh pass TACTILE_HAND_RIGHT),
+// so this file normally stays as is.
 
 #pragma once
 

@@ -8,7 +8,7 @@ the Pi 5 sender, the hotspot, and the two ESP32 hands. What the system does and 
 |------|---------------|-----------|
 | Pi sender, tools, tests | Raspberry Pi 5, Ubuntu 24.04 (also builds on macOS/Linux for development) | CMake ≥ 3.20, C++17 compiler |
 | Hotspot | Pi 5 | NetworkManager (`nmcli`) |
-| Hand firmware | 2 × ESP32-WROOM-32 DevKit | Arduino ESP32 core 3.x (Arduino IDE 2 or arduino-cli) |
+| Hand firmware | 2 × ESP32-WROOM-32 DevKit | Arduino ESP32 core 3.x (PlatformIO, Arduino IDE 2 or arduino-cli) |
 
 ---
 
@@ -83,6 +83,8 @@ TACTILE_AP_CHANNEL=6 sudo -E ./scripts/pi_hotspot.sh up
 - While it's up, the Pi has no internet over Wi-Fi. Use Ethernet if you need both.
 - To SSH in from a laptop, join `TactileNet` (the laptop gets an address from .10 upward) and
   run `ssh <user>@10.42.0.1`.
+- To see or change the password, and to check that the link is healthy, see
+  [section 6](#6-wi-fi-password-and-monitoring).
 
 If `up` fails:
 
@@ -96,7 +98,25 @@ If `up` fails:
 
 ### Toolchain (on the laptop that flashes the boards)
 
-Use either of these:
+**Option 1: PlatformIO (recommended).** Install one of these:
+
+- **PlatformIO Core (CLI):**
+  ```bash
+  brew install platformio                   # or: pipx install platformio
+  pio --version
+  ```
+  If you installed it through the VS Code extension instead, the CLI is at
+  `~/.platformio/penv/bin/pio`. Add that folder to your `PATH`, or use the full path.
+- **VS Code:** install the **PlatformIO IDE** extension, then open the `tactileESP32/esp32`
+  folder (the one that contains `platformio.ini`).
+
+You don't need to install the ESP32 platform yourself. The first build downloads it
+(about 1 GB, a few minutes). [esp32/platformio.ini](esp32/platformio.ini) pins the
+[pioarduino](https://github.com/pioarduino/platform-espressif32) platform 55.03.312, which
+provides Arduino ESP32 core 3.3.12. PlatformIO's official `espressif32` platform only
+ships core 2.x, so don't switch to it.
+
+**Option 2: without PlatformIO.** Use either of these:
 
 - **Arduino IDE 2:** Boards Manager → install **"esp32" by Espressif Systems**, version 3.x.
 - **arduino-cli:**
@@ -116,7 +136,8 @@ cp tactile_hand/secrets.example.h tactile_hand/secrets.h
 # edit secrets.h: TACTILE_AP_SSID "TactileNet", TACTILE_AP_PSK = same as TACTILE_AP_PSK on the Pi
 ```
 
-`secrets.h` is gitignored; never commit it.
+`secrets.h` is gitignored; never commit it. To look up the password the Pi is using, see
+[section 6](#6-wi-fi-password-and-monitoring).
 
 ### Wiring (each hand)
 
@@ -134,6 +155,7 @@ cp tactile_hand/secrets.example.h tactile_hand/secrets.h
 ### Find the serial port
 
 ```bash
+pio device list                 # with PlatformIO
 arduino-cli board list          # or: ls /dev/cu.*   (macOS)   /  ls /dev/ttyUSB*  (Linux)
 ```
 
@@ -142,7 +164,33 @@ arduino-cli board list          # or: ls /dev/cu.*   (macOS)   /  ls /dev/ttyUSB
   doesn't appear, install the USB-serial driver for your board's chip: **CP210x** (Silicon Labs)
   or **CH340** (WCH). The chip name is printed next to the USB port.
 
-### Flash
+### Build and flash with PlatformIO
+
+The PlatformIO project is in `esp32/`. It has two environments, `left` and `right`,
+which differ only in `TACTILE_HAND_RIGHT`. Leave `config.h` alone; the environment sets it.
+
+```bash
+cd tactileESP32/esp32
+
+pio run -e left                              # compile only (a quick check)
+pio run -e right
+
+pio run -e left  -t upload -t monitor --upload-port /dev/cu.usbserial-AAAA
+pio run -e right -t upload -t monitor --upload-port /dev/cu.usbserial-BBBB
+```
+
+- **Always pass `-e`.** Without it, `pio run` uses the default environment, `left`.
+- If only one board is plugged in, PlatformIO finds the port itself, so you can leave out
+  `--upload-port`.
+- `-t monitor` opens the serial log at 115200 baud after flashing, with timestamps and the
+  ESP32 crash decoder. Press Ctrl-C to leave it. To reopen it later, run
+  `pio device monitor -e left --port /dev/cu.usbserial-AAAA`.
+- Build output goes to `esp32/.pio/` (gitignored). `pio run -t clean` removes it.
+
+In VS Code, open `esp32/`, click the PlatformIO icon in the sidebar, then under
+**Project Tasks → left** (or **right**) click **Build**, **Upload** or **Monitor**.
+
+### Flash without PlatformIO (arduino-cli or Arduino IDE 2)
 
 With arduino-cli, use the helper script. It passes the correct hand setting for you:
 
@@ -203,3 +251,106 @@ Everything is in [esp32/tactile_hand/config.h](esp32/tactile_hand/config.h). Re-
 | The rest position isn't centred on the hand | `TACTILE_REST_DEG` |
 | The arm droops at rest | `TACTILE_RELEASE_AFTER_MS 0` (keeps holding, but may hum) |
 | The servo is wired to a different pin | `TACTILE_SERVO_PIN` |
+
+## 6. Wi-Fi: password and monitoring
+
+### How the pieces fit
+
+```
+            Wi-Fi network "TactileNet" (2.4 GHz, WPA2, no internet)
+   ┌─────────────────────────────────────────────────────────┐
+   │   Pi 5 = access point + sender     10.42.0.1            │
+   │      │  UDP, 3-byte packet, 20×/s, to port 4210         │
+   │      ├──────────────► left hand ESP32   10.42.0.2       │
+   │      └──────────────► right hand ESP32  10.42.0.3       │
+   │   laptops (optional, for SSH/testing)  10.42.0.10+      │
+   └─────────────────────────────────────────────────────────┘
+```
+
+- **The Pi is the router.** `pi_hotspot.sh up` saves a NetworkManager connection called
+  `tactile-ap` that turns `wlan0` into an access point. It has `autoconnect yes`, so it comes
+  back on every boot. Run `up` once, not every session.
+- **The hands have fixed addresses.** They don't ask the Pi for an address. They set
+  10.42.0.2 or 10.42.0.3 themselves, chosen by the `left`/`right` build. The Pi hands out
+  addresses from .10 upward to laptops, so the two never clash.
+- **The Pi repeats the current direction every 50 ms.** It doesn't send one message per
+  change, so a lost packet is covered by the next one. A hand that hears nothing for
+  500 ms puts its servo back to rest.
+- **The ESP32 reconnects by itself** if Wi-Fi drops. It starts over completely if it's
+  still down after 10 s. You don't need to reboot it.
+
+### The password
+
+There's no default. You choose it when you start the hotspot, and the same value must
+be compiled into both hands.
+
+| | Pi (hotspot) | ESP32 (both hands) |
+|---|---|---|
+| **Where it lives** | Saved by NetworkManager in `/etc/NetworkManager/system-connections/tactile-ap.nmconnection` (root only) | `esp32/tactile_hand/secrets.h`, compiled into the firmware |
+| **Set it** | `export TACTILE_AP_PSK='…'` then `sudo -E ./scripts/pi_hotspot.sh up` | `cp secrets.example.h secrets.h`, then edit `TACTILE_AP_PSK` |
+| **See it** | `sudo nmcli -s -g 802-11-wireless-security.psk connection show tactile-ap` | open `secrets.h` |
+| **Change it** | Re-run `up` with the new value | Edit `secrets.h` and **re-flash both hands** |
+
+- **The password must be 8–63 characters** and match exactly. It's case-sensitive, and a
+  trailing space counts. A mismatch shows up as a fast-blinking LED that never stops.
+- **`sudo` needs `-E`.** Without it, `sudo` drops `TACTILE_AP_PSK` and the script stops with
+  "set TACTILE_AP_PSK".
+- **`nmcli device wifi show-password`** prints the password and a QR code for joining from
+  a phone or laptop. The hotspot must be running.
+- **`secrets.h` is gitignored.** Each person who flashes a board needs their own copy.
+  Share the password directly, never through the repo.
+- **`export` puts the password in your shell history.** To avoid that, use
+  `read -rs TACTILE_AP_PSK && export TACTILE_AP_PSK`, which prompts without echoing.
+- **The network name** works the same way: `TACTILE_AP_SSID` on the Pi (default
+  `TactileNet`) and in `secrets.h`. The **channel** only needs changing on the Pi, because
+  the hands find it automatically.
+
+Before you run `up`:
+- **Do all installs and builds first.** While the hotspot is up, the Pi has no internet
+  over Wi-Fi.
+- **If you're SSHed in over Wi-Fi, `up` cuts off your session.** Join `TactileNet` and
+  run `ssh <user>@10.42.0.1`.
+- **To get the Pi's normal Wi-Fi back,** run `sudo ./scripts/pi_hotspot.sh down`. It returns
+  on the next boot unless you also run `sudo nmcli connection delete tactile-ap`.
+
+### Monitoring
+
+**On the Pi**, `./scripts/pi_hotspot.sh status` shows whether the hotspot is active and
+pings both hands.
+
+**The status LED on each hand** shows which layer is failing:
+
+| LED | Meaning | Check |
+|-----|---------|-------|
+| Fast blink | Not on Wi-Fi | Hotspot up? Password and SSID match `secrets.h`? Board in range? |
+| Slow blink | On Wi-Fi, no packets | Is `tactile_send` running? Are `--left`/`--right` pointing at the right addresses? |
+| Solid | Receiving packets | Working |
+
+**The serial log** (`pio device monitor -e left --port …` at 115200 baud) prints
+`wifi up: 10.42.0.2, channel 6, rssi -48 dBm` on connect, then a report every 5 s.
+`tactile_listen` prints the same report, without RSSI:
+
+```
+5 s: 100 ok, 0 lost (0.0%), 0 stale, 0 malformed, max gap 62 ms, rssi -48 dBm
+```
+
+| Field | Healthy | What it means |
+|-------|---------|---------------|
+| `ok` | ≈ 100 | Packets accepted. 20/s × 5 s = 100 |
+| `lost` | 0 to a few % | Gaps in the sequence number. Small losses are harmless, because every packet repeats the state |
+| `max gap` | well under 500 ms | Longest silence between packets. **This is the number that matters.** Near 500 ms, the failsafe starts firing and the servo stutters |
+| `rssi` | −30 to −60 dBm | Signal strength. Around −70 is marginal; −80 or worse causes dropouts |
+| `stale` / `malformed` | 0 | Late or out-of-order packets, or packets that aren't ours on port 4210 |
+
+A `FAILSAFE: no packet for … ms -> rest` line means the hand went 500 ms without a packet.
+
+### Wi-Fi troubleshooting
+
+| Symptom | Likely cause |
+|---------|--------------|
+| Fast blink forever | Password or SSID mismatch, the hotspot isn't up, or the board is out of range |
+| Slow blink, but `status` shows the hand up | Sender not running, or pointed at the wrong address |
+| Large `max gap` and RSSI below −75 | Too far away or a crowded channel. Run `down`, `scan`, then `up` on a quieter channel (1, 6 or 11) |
+| Both hands drop out together | Channel congestion. Rescan and switch channel |
+| One hand resets or drops while the servo moves | Brownout. The servo is drawing power from the ESP32 (see Wiring) |
+| A laptop standing in as a hand breaks the real one | Both have the same IP. Turn the real hand off first |
