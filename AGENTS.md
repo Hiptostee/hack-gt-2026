@@ -61,7 +61,7 @@ These hold for every feature, regardless of implementation:
 | Depth camera | Intel RealSense **D415** | In hand, working — this is the camera |
 | IMU | MPU6050, I2C address `0x68` | In hand, integrated |
 | Microcontroller | ESP32 | In hand; intended for haptic output |
-| Haptics | Vibration motors / servos driven by the ESP32 | Planned |
+| Haptics | Two ESP32 hand units driving SG90 servos | Firmware and sender on the `tactileESP32` branch; not flashed or merged |
 
 **The camera is a D415.** The original idea notes mention an L515 — ignore that;
 it was never acquired. The D415 has no onboard IMU, which is why the MPU6050 is
@@ -157,7 +157,7 @@ separate — do not copy the current architecture into AGENTS.md.
 | `companion/` | On-device voice companion (scene questions, text reading, help) |
 | `companion/specs.md` | Voice companion spec — interaction model, button gestures, pipeline |
 | `companion/README.md` | Companion package docs — voice service + browser demo fallback |
-| `companion/guardian/` | Guardian Voice — ElevenLabs Conversational AI emergency assistant |
+| `companion/guardian/` | Guardian Voice — push-to-talk ElevenLabs agent for a disoriented user; not an emergency service |
 | `companion/guardian/specs.md` | Guardian Voice spec — activation, agent tools, SMS contact, failure behavior |
 | `companion/navigate/specs.md` | Navigate-to-named-object spec — Gemini box → planner goal, status topic, failure speech |
 | `host_streamer/` | macOS dev bridge: tethered camera → containerized ROS stack |

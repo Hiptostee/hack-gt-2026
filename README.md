@@ -12,8 +12,8 @@ The hazard-feedback target includes audio and tactile output; local audio comes
 first and tactile patterns remain brainstorming. Idle single tap repeats the
 last answer; a thinking/speaking tap cancels without automatic repeat; hold to
 talk/release to send; double tap gives local spoken help/status (no internet,
-contacts no one); triple tap is the Guardian entry point. Implemented and
-unit-tested on `voice/on-integration`; Pi button timing not yet validated. The
+contacts no one); triple tap opens Guardian Voice. Implemented and
+unit-tested on `feature/guardian`; Pi button timing not yet validated. The
 locator sound is removed. The button mapping is in [companion/specs.md §2](companion/specs.md#2-interaction-model).
 The worn-camera coverage survey is a required task before capability claims.
 

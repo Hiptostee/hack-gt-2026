@@ -10,10 +10,12 @@ configured, its API access verified and a laptop smoke test run (settings in
 [agent.md](agent.md)). As of 18:00, Guardian is implemented and wired into the
 companion on `feature/guardian` (build-order steps 1–5, §13): `session.py`
 (`GuardianController`), `audio.py` (push-to-talk `GuardianAudio`), `sms.py`
-(`SmsGate`, fake sender only). Run live against the agent on a Mac with
-synthesized speech and through `python3 -m companion.voice` (`g` to enter, `h`
-to leave); not yet run on the Pi or with a person on the real mic. Twilio is
-not built. Depends on the shared audio owner from
+(`SmsGate`). Run live against the agent on a Mac with synthesized speech and
+through `python3 -m companion.voice` (`g` to enter, `h` to leave); not yet run
+on the Pi or with a person on the real mic. Since 18:40 (see `log.md`): Pi
+preflight (`python3 -m companion.guardian.preflight`), the observation trail,
+and `TwilioSender` (`GUARDIAN_SMS=twilio`, mock-tested only, no account yet).
+Depends on the shared audio owner from
 [hazard warnings §7](../../ros_ws/src/hazard_warnings/specs.md#7-voice-interaction-and-audio-ownership)
 (hazard milestone 2). Nothing here is working until it passes §12 on the Pi.
 
@@ -285,7 +287,7 @@ Rules:
 
 | Tool | Params | Waits for response | Response timeout | Notes |
 | --- | --- | --- | --- | --- |
-| `get_status` | none | yes | 5 s | Returns `status_text()` + `last_observation` |
+| `get_status` | none | yes | 5 s | Returns `status_text()` + the observation trail (§7) |
 | `describe_scene` | none | yes | 25 s (local deadline 8 s) | §8 |
 | `prepare_sms` | `note` (string, ≤ 160 chars, optional) | yes | 25 s (returns after the local preview finishes) | Only prepares; §7 |
 | `end_call` | — | — | — | Built-in system tool |
@@ -350,13 +352,6 @@ the application can send it.
    Device status was dropped from the text after the first live run: it made
    the spoken preview 17 s long, close to the agent's 25 s tool timeout, and
    told the contact nothing useful. The preview now takes about 13 s.
-
-   **TO PURSUE ([plan §12c](../../plan.md#12c-timed-trail-of-observations-in-guardians-text)):**
-   replace the single `{last_observation}` with a timed trail of up to three
-   recent camera observations, newest first, built by the app ("Recent camera
-   observations: elevator sign at 3:55 PM; Room 204 sign at 3:52 PM.").
-   `get_status` returns the same trail; the greeting keeps only the latest.
-   Still worded as camera observations, never as a route or location.
 
    The app stores `{draft_id, text, recipient, created_at, expires_at=+60 s}`
    and enters `active.sms_pending`. A second `prepare_sms` while a draft is
@@ -502,13 +497,13 @@ conversational latency.
 
 | Step | Work | Evidence before continuing |
 | --- | --- | --- |
-| 0 | Spike: dashboard agent via web widget; confirm key has Agents permission; one Twilio SMS by curl to a verified number | All three work by hand. **Agent configured and key verified; laptop smoke test and Twilio pending.** |
-| 1 | Extract `status_text()`; remove locator code; add triple-tap chain, `guardian` device action, `g` dev key | Double tap and triple tap classified correctly in tests. **Done on `voice/on-integration`; triple tap currently announces that Guardian isn't available yet.** |
+| 0 | Spike: dashboard agent via web widget; confirm key has Agents permission; one Twilio SMS by curl to a verified number | All three work by hand. **Agent configured, key verified, laptop smoke test passed; Twilio by hand pending (no account).** |
+| 1 | Extract `status_text()`; remove locator code; add triple-tap chain, `guardian` device action, `g` dev key | Double tap and triple tap classified correctly in tests. **Done (`e450198`); triple tap and the `guardian` action now open Guardian.** |
 | 2 | Shared audio owner (hazard milestone 2) | Hazard preempts fake Guardian playback; late chunks dropped. **Done: `Audio.stream(priority)` is the producer API Guardian will use; the owner's tests cover preemption and late chunks.** |
 | 3 | `GuardianController` + custom `AudioInterface`, `get_status`, `end_call`, push-to-talk, double-tap exit | Real conversation on the Pi; exit and offline fallback work. **Built; live on a Mac only (synthesized speech, keyboard `g`/`h`).** |
 | 4 | `describe_scene` | Freshness, deadline, late-result discard. **Built and tested; live Gemini call 1.1 s.** |
 | 5 | `SmsGate` with a fake sender | Criterion 7 passes in tests. **Passes; live run sent exactly one fake text after a spoken yes.** |
-| 6 | Real Twilio | Criterion 6 with verified contact |
+| 6 | Real Twilio | Criterion 6 with verified contact. **`TwilioSender` built and mock-tested; no account or real send yet.** |
 | 7 | Full-stack run | §11 measured and recorded; criteria 10–13 |
 
 Backup demo: the browser simulator (`companion/static/`) with the ElevenLabs
@@ -532,6 +527,6 @@ navigation inhibit.
 | Triple-tap window delay on double tap | TO BE VALIDATED on hardware |
 | Twilio account and verified test contact | TO BE DONE before step 6 |
 | Voice call to contact | STRETCH — ElevenLabs Twilio outbound calling is the likely path |
-| Timed observation trail in the SMS and `get_status` | TO PURSUE — [plan §12c](../../plan.md#12c-timed-trail-of-observations-in-guardians-text) |
+| Timed observation trail in the SMS and `get_status` | IMPLEMENTED (§7, [plan §12c](../../plan.md#12c-timed-trail-of-observations-in-guardians-text)); preview length with three entries TO BE CHECKED on the Pi |
 | Other languages | TO PURSUE — [plan §12d](../../plan.md#12d-other-languages). Needs a multilingual TTS model instead of `eleven_flash_v2` and the agent's language settings; local announcements and the SMS preview stay in the device language |
 | Scene snapshot sharing to contact | OUT OF SCOPE |

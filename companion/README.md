@@ -57,7 +57,7 @@ lost or wants help thinking it through. It needs the network. Spec:
   the text aloud and sends it once, only on a "yes" said in a new hold.
 
 ```bash
-pip3 install elevenlabs                  # plus the voice companion packages above
+pip3 install elevenlabs==2.69.0          # version tested; plus the voice companion packages above
 export ELEVENLABS_API_KEY='your-key'     # needs Agents permission
 export ELEVENLABS_AGENT_ID='agent_...'   # Guardian is off without both
 export GUARDIAN_CONTACT_NAME='Sarah'
@@ -151,7 +151,7 @@ back through the tunnel to activate the ROS guidance gate on the Pi.
   - Streaming SSE: Responses use `:streamGenerateContent?alt=sse` with `answer` ordered first in the JSON schema, reducing time-to-first-token to ~0.58s.
   - Automatic image downscaling: Images >1024px are downscaled to ~100KB JPEG using Pillow, OpenCV, or macOS `sips` before transmission, cutting upload latency by ~95%.
 - `COMPANION_SPEECH_SPEED`: Playback speed factor for voice responses (default `1.15`, 15% faster). Supports ElevenLabs `voice_settings.speed` and local `say`/`espeak-ng`.
-- `--hazard-topic`: ROS 2 topic (default `/hazard_warning`). Current handling only interrupts a busy companion and plays a stopped tone; payload-aware spoken warnings in every state are planned in the hazard spec, not implemented yet.
+- `--hazard-topic`: ROS 2 topic (default `/hazard_warning`). Any message plays two beeps and "Obstacle ahead." in every state (at most once per 2 s), cutting off less urgent speech. The payload is ignored for now; no detector publishes the topic yet, so use `scripts/fake_hazard.py` or `x` for bench tests.
 
 ### Raspberry Pi Production Deployment Notes
 

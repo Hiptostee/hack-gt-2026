@@ -15,7 +15,7 @@ Status: voice code exists; historical test results are recorded in `../log.md`.
 speaking cancels without automatic repeat; hold to talk and release to send is
 also decided, along with double tap for local help/status. Locator sound is
 removed from scope by user decision and from the voice code. The §2 mapping,
-triple tap and the shared audio owner are implemented on `voice/on-integration`
+triple tap and the shared audio owner are implemented on `feature/guardian`
 and unit-tested; Pi button timing is not yet validated. Audio hardware
 options remain open, with an open speaker likely for the demo and bone conduction
 the future product direction. Planned hazard behavior is not implemented merely
@@ -385,7 +385,7 @@ fallback demo if the voice path fails on the day.
 | --- | --- |
 | Interactions API vs legacy `generateContent` | Decide at implementation; legacy is known-working |
 | Audio hardware | Exploring options; likely open speaker for demo, bone conduction for product after hackathon |
-| Button gesture mapping | Hold/release = ask; idle tap = repeat; thinking/speaking tap = cancel without repeat. Double tap = local help/status every time; triple tap = Guardian; locator removed. Implemented and unit-tested on `voice/on-integration`; Pi button timing TO BE VALIDATED |
+| Button gesture mapping | Hold/release = ask; idle tap = repeat; thinking/speaking tap = cancel without repeat. Double tap = local help/status every time; triple tap = Guardian; locator removed. Implemented and unit-tested on `feature/guardian`; Pi button timing TO BE VALIDATED |
 | Camera mounting/coverage | Required task before wearable hazard claims; hazard spec §4 |
 | Tactile hazard feedback | Desired alongside audio; patterns/hardware exploratory, implement audio first |
 | ElevenLabs latency over venue wifi | Unmeasured; local TTS fallback is mandatory regardless |

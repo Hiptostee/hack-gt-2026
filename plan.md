@@ -13,8 +13,9 @@ Evidence comes from code, `AGENTS.md`, `log.md`, the feature specs and the
 branches inspected on 2026-09-26 18:30: `main` and `origin/integeration`
 (spelled that way on the remote) both at `fca5a5e`; `feature/guardian`
 (`e450198` tap mapping, audio owner, hazard phrase; `e31e770` Guardian;
-pushed); `feature/navigate-target` (`b0195a8` named-object navigation, on
-`e450198`); and `origin/tactileESP32` at `84e942c` (firmware plus a
+`25f08f4` Pi preflight, trail, Twilio sender; pushed);
+`feature/navigate-target` (`b0195a8` named-object navigation, on `e450198`;
+pushed); and `origin/tactileESP32` at `84e942c` (firmware plus a
 laptop-side tactile sender). None is merged into `main`. Branch contents do
 not establish that the combined wearable has been tested.
 
@@ -96,7 +97,7 @@ interaction; Navigate and Ask are not exclusive safety modes.
 | TO BE DECIDED | Unresolved choice; no hidden implementation assumption |
 | TO BE VALIDATED | Requires measurement or verification on the intended hardware |
 | STRETCH | Outside the initial demonstration commitment |
-| TO PURSUE | Selected by the team as a feature we want (§12); no code or spec yet; must not delay milestones 1–4 |
+| TO PURSUE | Selected by the team as a feature we want (§12); each item there states its own status; must not delay milestones 1–4 |
 
 **Outside the initial scope:** outdoor route guidance, backward guidance,
 reliable stairs/curbs/drop-off classification, arbitrary destination navigation,
@@ -208,7 +209,7 @@ tactile-only demo or a different button mapping.
 | Voice companion | `main` (`fca5a5e`): Gemini streaming, ElevenLabs/local speech, button state machine; newer tap mapping on `feature/guardian` | IMPLEMENTED; current demo uses laptop browser audio; Pi button/mic/speaker demonstration TO BE VALIDATED |
 | Hazard interruption | `feature/guardian`: one persistent audio owner (`voice/audio.py`), prioritized speech, resident "Obstacle ahead." phrase (`voice/hazards.py`), `_hazard()` for every state | IMPLEMENTED (hazard milestone 2): unit-tested and checked on a Mac speaker; payload still ignored (milestone 1); no detector publishes the topic; Pi onset timing TO BE VALIDATED |
 | Tactile transport/firmware | `origin/tactileESP32` (`84e942c`): C++ sender, protocol, hotspot scripts, SG90 firmware, PlatformIO build/flash, laptop-side `tactile_link.py` fed by the Pi bridge | IMPLEMENTED ON BRANCH; not merged into `main`; log records host builds/tests, not flashed hardware |
-| Guardian Voice | `companion/guardian/`: agent configured and smoke-tested on a laptop; `GuardianController`, push-to-talk `GuardianAudio`, `SmsGate` with a fake sender | IMPLEMENTED ON BRANCH: `feature/guardian` (`e31e770`), wired into the on-device companion; tested live on a Mac; Twilio not built (fake sender only); not run on the Pi |
+| Guardian Voice | `companion/guardian/`: agent configured and smoke-tested on a laptop; `GuardianController`, push-to-talk `GuardianAudio`, `SmsGate` with a fake sender | IMPLEMENTED ON BRANCH: `feature/guardian` (`e31e770`), wired into the on-device companion; tested live on a Mac; Pi preflight, observation trail and `TwilioSender` added after (mock-tested, no Twilio account); not run on the Pi |
 | Local help | `status_text()` status and last landmark on its own worker; locator removed from voice code | IMPLEMENTED on `feature/guardian`; offline Pi run TO BE VALIDATED |
 | Phone/browser help fallback | Confirmed call/SMS/share handoffs in `companion/static/` | IMPLEMENTED FALLBACK; phone/platform validation pending; not standalone Pi dispatch |
 | Persistent remember-this | No object-memory pipeline found | TO BE IMPLEMENTED; STRETCH |
@@ -422,8 +423,9 @@ separate from double-tap help, SMS to one configured contact via Twilio, sent
 by the application only after a spoken preview and a fresh verbal yes.
 ElevenLabs agent configured and API access verified. `GuardianController`,
 the push-to-talk audio path and `SmsGate` are implemented and wired into the
-on-device companion on `feature/guardian`; SMS uses a fake sender until
-Twilio is built; nothing has run on the Pi. The browser fallback
+on-device companion on `feature/guardian`; SMS runs with the fake sender
+until a Twilio account and verified number exist (`TwilioSender` is built and
+mock-tested); nothing has run on the Pi. The browser fallback
 opens confirmed call/message/share actions; it does not prove delivery or
 implement a standalone Pi emergency service.
 
@@ -510,10 +512,11 @@ comes from its branch log and was not rerun in this review.
 
 ## 12. Features to pursue
 
-**TO PURSUE:** selected by the team on 2026-09-26 as features we want. None
-has code or a feature spec yet. Each needs its own `specs.md` before
-implementation (per `AGENTS.md`), and none may delay milestones 1–4. The
-designs below are starting positions for those specs, not decisions.
+**TO PURSUE:** selected by the team on 2026-09-26 as features we want. The
+timed trail (§12c) is implemented inside the Guardian spec; the others have
+no code or spec yet. Each needs its own `specs.md` before implementation (per
+`AGENTS.md`), and none may delay milestones 1–4. The designs below are
+starting positions for those specs, not decisions.
 
 ### 12a. Judge debug dashboard
 
@@ -562,8 +565,9 @@ nonvisual. A live view lets an observer check why each cue happened.
 
 ### 12c. Timed trail of observations in Guardian's text
 
-**IMPLEMENTED** on `feature/guardian` (uncommitted), unit-tested; preview
-length with a full trail not yet checked on the Pi.
+**IMPLEMENTED** on `feature/guardian`, unit-tested; specified in the
+[Guardian spec §7](companion/guardian/specs.md#7-sms--application-enforced-verbal-confirmation).
+Preview length with a full trail not yet checked on the Pi.
 
 - The session keeps the last three distinct landmarks, each with its camera
   capture time, and drops entries older than 30 minutes (provisional). Today it

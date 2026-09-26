@@ -16,12 +16,12 @@ fresh clone had no `AGENTS.md`, `log.md` or navigate spec. The git guards
 `companion/navigate/specs.md`, so the branches never conflict on shared docs.
 
 **Branch state:**
-- `feature/guardian`: `e450198` tap mapping + audio owner + hazard phrase,
-  `e31e770` Guardian, pushed. The 18:40 work below (preflight, fake hazard,
-  trail, Twilio, `PI_VOICE`) was uncommitted at 18:45; check `git log`.
-- `feature/navigate-target`: `b0195a8` named-object navigation on `e450198`,
-  plus its spec. Planner compiles in `ros:jazzy-ros-base` (arm64); 106 tests
-  pass. **Paused** (18:40 decision).
+- `feature/guardian` (pushed): `e450198` tap mapping + audio owner + hazard
+  phrase, `e31e770` Guardian, `25f08f4` the 18:40 work below (preflight, fake
+  hazard, `--pi-url`, trail, Twilio, `PI_VOICE`), `3b01805` docs.
+- `feature/navigate-target` (pushed): `b0195a8` named-object navigation on
+  `e450198`, `b04eb8d` its spec. Planner compiles in `ros:jazzy-ros-base`
+  (arm64); 106 tests pass. **Paused** (18:40 decision).
 - `origin/tactileESP32` (`84e942c`): laptop-side tactile sender. Not merged.
 
 **Setup on the Pi laptop:**
@@ -60,13 +60,18 @@ then `scripts/pi_launch.sh` + `python3 scripts/laptop_launch.py`, watching
 **Merging (after each passes alone).** Suggested:
 `git checkout -b integration/wearable feature/guardian`, then merge
 `feature/navigate-target`, then `origin/tactileESP32`. Conflicts found with
-`git merge-tree` on the committed heads at 18:30; the uncommitted 18:40 work
-(`--pi-url`, `pi_bridge.py`, `pi_launch.sh`) may add more. All found so far
-are "keep both sides":
+`git merge-tree` on `3b01805` + `b04eb8d` (Guardian and navigate) and on the
+earlier heads for tactile; re-run it if either branch moves. All are "keep
+both sides":
 - guardian + navigate, `companion/voice/__main__.py` in `main()`: keep the
   navigate block inside `if args.ros:` (`announce()` and
   `guidance = RosGuidance(on_event=announce)`), then the Guardian lines after
-  it (`session = Session()`, `guardian = ...from_env(...)`).
+  it (`session = Session()`, `guardian = ...from_env(...)` with
+  `status_text(..., landmark=False)`).
+- guardian + navigate, `companion/voice/pi_bridge.py`: both added
+  `RemotePi.close()` as `pass`; keep one. The rest of `RemotePi` auto-merges
+  (navigate's `capture_frame`, `go_to`, `events_since` alongside Guardian's
+  `--pi-url` use).
 - + tactile, `companion/voice/guidance.py`: imports `Bool, Empty, String` and
   `UInt8`; keep `STATUS_TIMEOUT_S`, `KEPT_EVENTS` and `DIRECTION_TIMEOUT_S`;
   keep both sets of fields and both subscriptions (`/target/status` and
