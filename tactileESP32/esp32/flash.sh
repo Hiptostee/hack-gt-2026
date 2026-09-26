@@ -34,6 +34,7 @@ fi
   "$DIR/tactile_hand"
 
 if [ -n "$PORT" ]; then
-  "$CLI" upload --fqbn "$FQBN" --input-dir "$BUILD" --port "$PORT"
+  "$CLI" upload --fqbn "$FQBN" --board-options UploadSpeed=115200 \
+    --input-dir "$BUILD" --port "$PORT" --verify
   "$CLI" monitor --port "$PORT" --config baudrate=115200
 fi

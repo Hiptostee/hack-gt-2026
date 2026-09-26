@@ -102,6 +102,9 @@ pio run -e right -t upload -t monitor --upload-port /dev/cu.usbserial-YYYY
 
 arduino-cli (`./flash.sh left|right [port]`) and the Arduino IDE still work; see
 [../BUILD.md](../BUILD.md), section 3.
+The `flash.sh` upload uses 115200 baud and verifies the flash. The firmware
+prints the ESP32 Wi-Fi MAC at boot so it can be registered with networks that
+require device registration.
 
 `tactile_protocol.h` in the sketch folder is a symlink to
 `../../protocol/tactile_protocol.h`, so the Pi and the ESP32 always share one packet

@@ -19,6 +19,7 @@ struct FakeWiFi {
   void mode(int) {}
   void setAutoReconnect(bool) {}
   IPAddress localIP() const { return IPAddress(10, 42, 0, 2); }
+  std::string macAddress() const { return "AA:BB:CC:DD:EE:FF"; }
   int channel() const { return 6; }
   int RSSI() const { return -50; }
 };

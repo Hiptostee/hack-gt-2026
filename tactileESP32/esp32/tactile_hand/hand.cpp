@@ -284,6 +284,7 @@ void hand_setup() {
 
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  LOG("ESP32 Wi-Fi MAC (register this): %s", WiFi.macAddress().c_str());
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   start_wifi(millis());
