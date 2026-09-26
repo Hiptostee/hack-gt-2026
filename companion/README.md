@@ -83,6 +83,15 @@ voice page, and starts the Docker RViz viewer. Connect TigerVNC Viewer to
 ElevenLabs key may be set on the laptop for synthesized speech; browser audio
 works without it.
 
+The launcher also sends tactile directions to the two ESP32 hands over the same
+Wi-Fi network as the laptop. Flash both hands with that network's credentials
+as described in [the tactile firmware guide](../tactileESP32/esp32/README.md).
+The default targets are `tactile-left.local` and `tactile-right.local`; use
+`--left-hand IP --right-hand IP` if the network does not resolve them. The Pi
+bridge supplies `/backpack/direction` and route validity through the SSH tunnel.
+The laptop sends neutral when guidance ends, the route is invalid, or fresh
+direction data stops. Use `--no-tactile` while testing without the hands.
+
 Open `http://localhost:8080`. Click and hold the browser button to speak through
 the laptop microphone, then release it. The laptop fetches one current JPEG from
 the Pi through the tunnel and sends the audio and JPEG to Gemini from the laptop.

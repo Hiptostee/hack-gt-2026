@@ -12,6 +12,7 @@ struct FakeWiFi {
   int status() const { return connected ? WL_CONNECTED : 0; }
   void disconnect() {}
   void config(IPAddress, IPAddress, IPAddress) {}
+  void setHostname(const char*) {}
   void begin(const char*, const char*) { delay(begin_delay_ms); }
   void setSleep(bool) {}
   void persistent(bool) {}

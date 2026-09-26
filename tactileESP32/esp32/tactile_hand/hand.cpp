@@ -1,4 +1,4 @@
-// One hand: Wi-Fi station on the Pi hotspot, UDP receiver, servo driver.
+// One hand: Wi-Fi station on the laptop's network, UDP receiver, servo driver.
 //
 // Receive rules match tools/tactile_listen.cpp on the Pi side: decode, drop
 // packets whose seq is not newer, return the servo to rest after
@@ -9,6 +9,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <ESPmDNS.h>
 #include <math.h>
 
 #include "config.h"
@@ -17,7 +18,7 @@
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
-#error "Copy secrets.example.h to secrets.h and set the hotspot SSID and password"
+#error "Copy secrets.example.h to secrets.h and set your Wi-Fi SSID and password"
 #endif
 
 #define LOG(format, ...) Serial.printf("[%9.3f] " format "\n", millis() / 1000.0, ##__VA_ARGS__)
@@ -27,9 +28,7 @@ namespace {
 const uint8_t kOwnSide = TACTILE_HAND_RIGHT ? tactile::kRight : tactile::kLeft;
 const char* const kHandName = TACTILE_HAND_RIGHT ? "right" : "left";
 
-const IPAddress kLocalIp(10, 42, 0, TACTILE_HAND_RIGHT ? 3 : 2);
-const IPAddress kGateway(10, 42, 0, 1);
-const IPAddress kSubnet(255, 255, 255, 0);
+const char* const kHostname = TACTILE_HAND_RIGHT ? "tactile-right" : "tactile-left";
 
 // If auto-reconnect has not brought Wi-Fi back after this long, start over.
 const uint32_t kReconnectRetryMs = 10000;
@@ -62,6 +61,7 @@ WiFiUDP udp;
 bool wifi_up = false;
 uint32_t wifi_attempt_ms = 0;
 bool udp_ready = false;
+bool mdns_up = false;
 uint32_t udp_attempt_ms = 0;
 
 bool receiving = false;  // a packet arrived since the last failsafe
@@ -147,7 +147,7 @@ void apply(uint8_t flags, uint32_t now) {
 
 void start_wifi(uint32_t now) {
   WiFi.disconnect();
-  WiFi.config(kLocalIp, kGateway, kSubnet);
+  WiFi.setHostname(kHostname);
   WiFi.begin(TACTILE_AP_SSID, TACTILE_AP_PSK);
   wifi_attempt_ms = now;
 }
@@ -157,6 +157,8 @@ void maintain_wifi(uint32_t now) {
   if (up && !wifi_up) {
     // Modem sleep adds 100-300 ms of receive latency; keep the radio awake.
     WiFi.setSleep(false);
+    mdns_up = MDNS.begin(kHostname);
+    if (!mdns_up) LOG("mDNS failed; use the logged IP address on the laptop");
     udp.stop();
     udp_ready = false;
     LOG("wifi up: %s, channel %d, rssi %d dBm", WiFi.localIP().toString().c_str(),
@@ -166,6 +168,8 @@ void maintain_wifi(uint32_t now) {
     receiving = false;
     apply(0, now);
     udp.stop();
+    if (mdns_up) MDNS.end();
+    mdns_up = false;
     udp_ready = false;
     wifi_attempt_ms = now;
   } else if (!up && now - wifi_attempt_ms >= kReconnectRetryMs) {
@@ -275,7 +279,7 @@ void hand_setup() {
   servo_pulse(pulse_for_degrees(TACTILE_REST_DEG));
   rest_since_ms = millis();
 
-  LOG("tactile hand: %s, ip %s, servo gpio %d", kHandName, kLocalIp.toString().c_str(),
+  LOG("tactile hand: %s, hostname %s.local, servo gpio %d", kHandName, kHostname,
       TACTILE_SERVO_PIN);
 
   WiFi.persistent(false);

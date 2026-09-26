@@ -203,6 +203,9 @@ For the complete Pi and laptop voice-navigation demo, use the two launchers in
 They start the Zenoh router and bridge as part of the Pi launch and the Docker
 viewer, SSH tunnel, and Gemini page as part of the laptop launch. Do not also
 start the individual services below while using those launchers.
+On the tactile branch, the laptop launcher also sends wireless direction packets
+to the two ESP32 hands. See [tactileESP32/BUILD.md](tactileESP32/BUILD.md) for
+firmware and shared Wi-Fi setup.
 
 DDS cannot advertise a routable return address through Docker Desktop's VM.
 Use ROS 2's Zenoh middleware instead; it carries discovery and topic data over

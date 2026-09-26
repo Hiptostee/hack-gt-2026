@@ -1,13 +1,13 @@
-# Tactile direction link: Raspberry Pi 5 → two ESP32 hands
+# Tactile direction link: laptop → two ESP32 hands
 
-Status: the Pi sender is implemented and tested on loopback. The ESP32 firmware
-is implemented and compiles, but hasn't run on hardware yet. Change history is
+Status: the laptop sender reads fresh guidance from the Pi bridge and transmits
+the shared UDP packet. The ESP32 firmware compiles, but hasn't run on hardware yet. Change history is
 in [LOG.md](LOG.md).
 
 ## 1. Goal and scope
 
-The Pi 5 tells the user which way to go by moving one SG90 servo on each hand.
-Each hand has its own ESP32-WROOM-32. The Pi sends both hands the same 3 direction
+The Pi 5 plans the route; the laptop tells the user which way to go by moving one SG90 servo on each hand.
+Each hand has its own ESP32-WROOM-32. The laptop sends both hands the same 3 direction
 flags over Wi-Fi UDP. **The priority is a smooth, stable wireless link.**
 
 | Flag  | Meaning    | Left servo (180°) | Right servo (180°) |
@@ -21,34 +21,25 @@ flags over Wi-Fi UDP. **The priority is a smooth, stable wireless link.**
 SG90s, so they can't spin continuously. Instead, "rotating" is a continuous smooth sweep
 back and forth (30°–150° around a 90° rest) for as long as the direction is held.
 
-In scope: the network, the packet, the Pi sender (C++ in this folder), the ESP32
-firmware ([esp32/](esp32/)), and test tools.
+In scope: the network, the packet, the laptop sender, the ESP32 firmware
+([esp32/](esp32/)), and test tools.
 
 ## 2. Network
 
 ```
-               Wi-Fi "TactileNet", 2.4 GHz, WPA2
-   ┌───────────────────────┐
-   │ Raspberry Pi 5        │── unicast UDP :4210 ──▶ left ESP32   10.42.0.2
-   │ hotspot  10.42.0.1    │── unicast UDP :4210 ──▶ right ESP32  10.42.0.3
-   └───────────────────────┘
-        ▲ optional: laptop joins the hotspot for SSH/VNC (gets DHCP .10–.254)
+   Pi ROS guidance ── SSH tunnel ──▶ laptop ── Wi-Fi UDP :4210 ──▶ two ESP32 hands
 ```
 
-- **The Pi hosts the hotspot** through NetworkManager: `scripts/pi_hotspot.sh up`.
-  Both hands join as stations. There's no router, phone or venue Wi-Fi involved,
-  so it works the same anywhere. The trade-off is that the Pi has no internet over
-  Wi-Fi while the hotspot is up; Ethernet still works.
-- **2.4 GHz only (band `bg`)**, because the ESP32-WROOM-32 has no 5 GHz. The default
-  channel is 6. At the venue, run `pi_hotspot.sh scan` first and pick whichever of
-  1, 6 or 11 is least crowded (`TACTILE_AP_CHANNEL=11`).
-- **Static IPs for the hands**, outside NetworkManager's DHCP pool
-  (10.42.0.10–254), so a laptop can never take a hand's address. The Pi
-  always knows where to send without discovery. (Setting the DHCP range directly
-  needs NetworkManager 1.52; Ubuntu 24.04 ships an older version.)
-- **Security:** WPA2-PSK with AES/CCMP and PMF off. This is the combination both the
-  Pi's Broadcom AP mode and the ESP32 handle reliably. Set the password through
-  `TACTILE_AP_PSK` so it isn't committed.
+- The hands join the **same Wi-Fi network as the laptop**. It must offer 2.4 GHz
+  service and allow peer-to-peer UDP traffic; guest networks with client isolation
+  will block this link. The laptop keeps internet access for Gemini.
+- Each hand gets an address through DHCP and advertises `tactile-left.local` or
+  `tactile-right.local` over mDNS. The laptop launcher accepts explicit hand IPs
+  if the network does not pass mDNS.
+- The Pi remains reachable over Tailscale. The laptop polls its bridge over the
+  SSH tunnel, then unicasts the three-byte packet to each hand at 20 Hz.
+- The old Pi hotspot and C++ sender are retained as standalone test tools. They
+  are not used by the integrated laptop launch.
 
 ## 3. Packet
 
@@ -76,7 +67,16 @@ Example: left with seq 200 → `A5 C8 02`.
   rejects it again on the receiving side as a second check. There are 4 valid
   states: neutral, front, left, right.
 
-## 4. Pi sender (C++)
+## 4. Sender
+
+The integrated laptop sender is `companion.voice.tactile_link`. The Pi bridge
+exposes `/guidance/state` from ROS `/backpack/direction`, `/backpack/path_valid`
+and the voice guidance gate. Direction codes 0/1/2/3/4 map to
+front/left/right/left/right. A missing, invalid or stale state sends neutral.
+The ESP32 also returns to rest after 500 ms without packets. The laptop launch
+starts the sender automatically.
+
+The original C++ sender below remains useful for direct packet and hardware tests.
 
 Library `tactile_link` ([include/tactile/](include/tactile/), [src/](src/)):
 
@@ -140,9 +140,9 @@ The sketch is [esp32/tactile_hand/](esp32/tactile_hand/). One sketch serves both
 boards; `TACTILE_HAND_RIGHT` picks the side. Setup and flashing are in
 [esp32/README.md](esp32/README.md).
 
-1. **Wi-Fi:** joins `TactileNet` with a static IP (left `10.42.0.2`, right
-   `10.42.0.3`, gateway `10.42.0.1`/24). The SSID and password live in a
-   gitignored `secrets.h`.
+1. **Wi-Fi:** joins the laptop's 2.4 GHz Wi-Fi network through DHCP. The SSID
+   and password live in a gitignored `secrets.h`. Each hand advertises its side
+   as an mDNS hostname and prints its assigned IP to serial.
 2. **Power saving off:** `WiFi.setSleep(false)` at startup and again on every
    (re)connect. The default modem-sleep mode adds 100–300 ms of latency.
 3. **Reconnect:** uses the core's auto-reconnect, and starts over after 10 s without Wi-Fi.

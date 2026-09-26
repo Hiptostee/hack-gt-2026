@@ -1,7 +1,12 @@
 # Build and setup
 
-This file covers everything needed to go from a fresh checkout to servos moving:
-the Pi 5 sender, the hotspot, and the two ESP32 hands. What the system does and why is in
+This file covers standalone Pi sender and hotspot testing. The integrated demo
+sends from the laptop: flash both hands with the laptop's 2.4 GHz Wi-Fi credentials
+and run `python3 scripts/laptop_launch.py` from the repository root. The sender
+resolves `tactile-left.local` and `tactile-right.local`, with
+`--left-hand IP --right-hand IP` available if mDNS is blocked. The network must
+allow laptop-to-ESP32 UDP traffic on port 4210. The Pi hotspot below is an older
+standalone test setup and is not needed for the integrated demo. What the system does and why is in
 [SPEC.md](SPEC.md).
 
 | Part | Where it runs | Toolchain |
@@ -123,7 +128,7 @@ No extra libraries are needed. The firmware only uses `WiFi` and `WiFiUdp` from 
 ```bash
 cd tactileESP32/esp32
 cp tactile_hand/secrets.example.h tactile_hand/secrets.h
-# edit secrets.h: TACTILE_AP_SSID "TactileNet", TACTILE_AP_PSK = same as TACTILE_AP_PSK on the Pi
+# edit secrets.h: TACTILE_AP_SSID and TACTILE_AP_PSK for the laptop's Wi-Fi
 ```
 
 `secrets.h` is gitignored; never commit it. To look up the password the Pi is using, see
@@ -214,16 +219,18 @@ The sketch folder contains `tactile_protocol.h`, which is a symlink to
 
 ## 4. First run
 
-1. Start the Pi hotspot (section 2).
+1. Connect the laptop to the same Wi-Fi named in both hands' `secrets.h` files.
 2. Power both hands. The status LED **fast-blinks** until the board joins Wi-Fi, then
    **slow-blinks**.
-3. On the Pi, run `./scripts/pi_hotspot.sh status`. Both `10.42.0.2` and `10.42.0.3` should be `up`.
-4. On the Pi, run `./build/tactile_send --demo`. The LEDs go **solid**, and the servos sweep
-   in turn: front (both) → left → right, with a rest in between, 1 s each.
+3. Read each assigned IP from its serial log. On the laptop, check that both
+   `tactile-left.local` and `tactile-right.local` resolve, or use their IPs.
+4. Start the Pi mapping launch and laptop launch. When guidance starts and a
+   current path exists, the LEDs go **solid** and the servos follow the route.
 5. Watch a hand's serial log. The 5 s report should show `0 lost` or close to it,
    a max gap well under 500 ms, and RSSI better than about −70 dBm.
 
-To control it by hand: run `./build/tactile_send`, then type `f`, `l`, `r`, `n` (rest), `s` (stats) or `q`.
+For a manual network test, run `./build/tactile_send --left LEFT_IP --right RIGHT_IP`
+on the laptop, then type `f`, `l`, `r`, `n` (rest), `s` (stats) or `q`.
 `--rate HZ` accepts finite values with `2 < HZ <= 1000`; slower rates would reach
 the 500 ms receiver failsafe between packets. Keep 20 Hz for normal use.
 
@@ -247,105 +254,38 @@ Everything is in [esp32/tactile_hand/config.h](esp32/tactile_hand/config.h). Re-
 | The arm droops at rest | `TACTILE_RELEASE_AFTER_MS 0` (keeps holding, but may hum) |
 | The servo is wired to a different pin | `TACTILE_SERVO_PIN` |
 
-## 6. Wi-Fi: password and monitoring
+## 6. Wi-Fi and monitoring for the integrated demo
 
-### How the pieces fit
+Both hands join the laptop's 2.4 GHz Wi-Fi network. Set its SSID and password in
+the gitignored `esp32/tactile_hand/secrets.h`, then flash each hand. They receive
+DHCP addresses and advertise `tactile-left.local` and `tactile-right.local` by
+mDNS. The laptop launcher sends the shared three-byte UDP packet to port 4210 on
+both hands. The Pi remains connected to the laptop through Tailscale and SSH.
 
-```
-            Wi-Fi network "TactileNet" (2.4 GHz, WPA2, no internet)
-   ┌─────────────────────────────────────────────────────────┐
-   │   Pi 5 = access point + sender     10.42.0.1            │
-   │      │  UDP, 3-byte packet, 20×/s, to port 4210         │
-   │      ├──────────────► left hand ESP32   10.42.0.2       │
-   │      └──────────────► right hand ESP32  10.42.0.3       │
-   │   laptops (optional, for SSH/testing)  10.42.0.10+      │
-   └─────────────────────────────────────────────────────────┘
-```
+The Wi-Fi network must permit client-to-client UDP traffic. Guest or campus
+networks may isolate clients. If mDNS does not resolve, use the IP printed by
+each hand's 115200-baud serial log:
 
-- **The Pi is the router.** `pi_hotspot.sh up` saves a NetworkManager connection called
-  `tactile-ap` that turns `wlan0` into an access point. It has `autoconnect yes`, so it comes
-  back on every boot. Run `up` once, not every session.
-- **The hands have fixed addresses.** They don't ask the Pi for an address. They set
-  10.42.0.2 or 10.42.0.3 themselves, chosen by the `left`/`right` build. The Pi hands out
-  addresses from .10 upward to laptops, so the two never clash.
-- **The Pi repeats the current direction every 50 ms.** It doesn't send one message per
-  change, so a lost packet is covered by the next one. A hand that hears nothing for
-  500 ms puts its servo back to rest.
-- **The ESP32 reconnects by itself** if Wi-Fi drops. It starts over completely if it's
-  still down after 10 s. You don't need to reboot it.
-
-### The password
-
-There's no default. You choose it when you start the hotspot, and the same value must
-be compiled into both hands.
-
-| | Pi (hotspot) | ESP32 (both hands) |
-|---|---|---|
-| **Where it lives** | Saved by NetworkManager in `/etc/NetworkManager/system-connections/tactile-ap.nmconnection` (root only) | `esp32/tactile_hand/secrets.h`, compiled into the firmware |
-| **Set it** | `export TACTILE_AP_PSK='…'` then `sudo -E ./scripts/pi_hotspot.sh up` | `cp secrets.example.h secrets.h`, then edit `TACTILE_AP_PSK` |
-| **See it** | `sudo nmcli -s -g 802-11-wireless-security.psk connection show tactile-ap` | open `secrets.h` |
-| **Change it** | Re-run `up` with the new value | Edit `secrets.h` and **re-flash both hands** |
-
-- **The password must be 8–63 characters** and match exactly. It's case-sensitive, and a
-  trailing space counts. A mismatch shows up as a fast-blinking LED that never stops.
-- **`sudo` needs `-E`.** Without it, `sudo` drops `TACTILE_AP_PSK` and the script stops with
-  "set TACTILE_AP_PSK".
-- **`nmcli device wifi show-password`** prints the password and a QR code for joining from
-  a phone or laptop. The hotspot must be running.
-- **`secrets.h` is gitignored.** Each person who flashes a board needs their own copy.
-  Share the password directly, never through the repo.
-- **`export` puts the password in your shell history.** To avoid that, use
-  `read -rs TACTILE_AP_PSK && export TACTILE_AP_PSK`, which prompts without echoing.
-- **The network name** works the same way: `TACTILE_AP_SSID` on the Pi (default
-  `TactileNet`) and in `secrets.h`. The **channel** only needs changing on the Pi, because
-  the hands find it automatically.
-
-Before you run `up`:
-- **Do all installs and builds first.** While the hotspot is up, the Pi has no internet
-  over Wi-Fi.
-- **If you're SSHed in over Wi-Fi, `up` cuts off your session.** Join `TactileNet` and
-  run `ssh <user>@10.42.0.1`.
-- **To get the Pi's normal Wi-Fi back,** run `sudo ./scripts/pi_hotspot.sh down`. It returns
-  on the next boot unless you also run `sudo nmcli connection delete tactile-ap`.
-
-### Monitoring
-
-**On the Pi**, `./scripts/pi_hotspot.sh status` shows whether the hotspot is active and
-pings both hands.
-
-**The status LED on each hand** shows which layer is failing:
-
-| LED | Meaning | Check |
-|-----|---------|-------|
-| Fast blink | Not on Wi-Fi | Hotspot up? Password and SSID match `secrets.h`? Board in range? |
-| Slow blink | On Wi-Fi, no packets | Is `tactile_send` running? Are `--left`/`--right` pointing at the right addresses? |
-| Solid | Receiving packets | Working |
-
-**The serial log** (`pio device monitor -e left --port …` at 115200 baud) prints
-`wifi up: 10.42.0.2, channel 6, rssi -48 dBm` on connect, then a report every 5 s.
-`tactile_listen` prints the same report, without RSSI:
-
-```
-5 s: 100 ok, 0 lost (0.0%), 0 stale, 0 malformed, max gap 62 ms, rssi -48 dBm
+```bash
+python3 scripts/laptop_launch.py --left-hand LEFT_IP --right-hand RIGHT_IP
 ```
 
-| Field | Healthy | What it means |
-|-------|---------|---------------|
-| `ok` | ≈ 100 | Packets accepted. 20/s × 5 s = 100 |
-| `lost` | 0 to a few % | Gaps in the sequence number. Small losses are harmless, because every packet repeats the state |
-| `max gap` | well under 500 ms | Longest silence between packets. **This is the number that matters.** Near 500 ms, the failsafe starts firing and the servo stutters |
-| `rssi` | −30 to −60 dBm | Signal strength. Around −70 is marginal; −80 or worse causes dropouts |
-| `stale` / `malformed` | 0 | Late or out-of-order packets, or packets that aren't ours on port 4210 |
+The laptop logs each resolved target and each direction change. A neutral
+packet is sent when guidance is stopped, the path is invalid, the Pi bridge is
+unreachable, or no recent direction is available. The hand itself returns to
+rest after 500 ms without valid packets.
 
-A `FAILSAFE: no packet for … ms -> rest` line means the hand went 500 ms without a packet.
+| Hand LED | Meaning | Check |
+|----------|---------|-------|
+| Fast blink | Not connected to Wi-Fi | SSID, password, 2.4 GHz coverage, power |
+| Slow blink | Connected, no packets | Laptop sender, hostnames/IPs, client isolation |
+| Solid | Receiving packets | Packet link is active; check the spoken route state |
 
-### Wi-Fi troubleshooting
+The serial log also reports packets received, lost, stale and malformed, maximum
+packet gap, and RSSI every 5 seconds. A maximum gap near 500 ms can trigger the
+receiver failsafe. Servo movement that resets Wi-Fi usually points to a power
+problem; check the wiring and supply voltage.
 
-| Symptom | Likely cause |
-|---------|--------------|
-| Fast blink forever | Password or SSID mismatch, the hotspot isn't up, or the board is out of range |
-| Slow blink, but `status` shows the hand up | Sender not running, or pointed at the wrong address |
-| Large `max gap` and RSSI below −75 | Too far away or a crowded channel. Run `down`, `scan`, then `up` on a quieter channel (1, 6 or 11) |
-| Both hands drop out together | Channel congestion. Rescan and switch channel |
-| One hand resets or drops while the servo moves | Brownout. The servo is drawing power from the ESP32 (see Wiring) |
-| A laptop standing in as a hand breaks the real one | Both have the same IP. Turn the real hand off first |
+The Pi hotspot script and C++ `tactile_send` remain available for standalone
+network/protocol testing. Their historical fixed-address setup is not used by
+the integrated laptop launch.

@@ -4,7 +4,7 @@
 
 #pragma once
 
-// 0 = left hand (10.42.0.2), 1 = right hand (10.42.0.3). In the Arduino IDE,
+// 0 = tactile-left.local, 1 = tactile-right.local. In the Arduino IDE,
 // change this before flashing the right-hand board.
 #ifndef TACTILE_HAND_RIGHT
 #define TACTILE_HAND_RIGHT 0

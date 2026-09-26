@@ -39,6 +39,7 @@ class WebRosVoice(unittest.TestCase):
         pi.camera = Camera()
         pi.guidance = mock.Mock()
         pi.guidance.start.return_value = "Guidance started."
+        pi.guidance.snapshot.return_value = {"active": True, "path_valid": True, "direction": 3}
         thread = threading.Thread(target=pi.serve_forever, daemon=True)
         thread.start()
         try:
@@ -46,6 +47,8 @@ class WebRosVoice(unittest.TestCase):
             self.assertEqual(remote.status(), "Ready")
             self.assertEqual(remote.capture()[0], b"pi-camera-jpeg")
             self.assertEqual(remote.start(), "Guidance started.")
+            with urlopen(f"http://127.0.0.1:{pi.server_port}/guidance/state") as response:
+                self.assertEqual(json.load(response)["direction"], 3)
             remote.stop()
             pi.guidance.start.assert_called_once()
             pi.guidance.stop.assert_called_once()

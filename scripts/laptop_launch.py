@@ -4,6 +4,7 @@ import argparse
 import getpass
 import os
 from pathlib import Path
+import signal
 import socket
 import subprocess
 import sys
@@ -39,9 +40,16 @@ def wait_for_bridge(tunnel, timeout=30):
     raise RuntimeError("Pi bridge did not answer on port 8081. Start scripts/pi_launch.sh on the Pi first.")
 
 
-def stop_process(process):
+def stop_process(process, graceful_interrupt=False):
     if process is None or process.poll() is not None:
         return
+    if graceful_interrupt:
+        process.send_signal(signal.SIGINT)
+        try:
+            process.wait(timeout=2)
+            return
+        except subprocess.TimeoutExpired:
+            pass
     process.terminate()
     try:
         process.wait(timeout=5)
@@ -54,6 +62,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pi-ip", default=os.environ.get("PI_LAN_IP", "100.73.168.115"))
     parser.add_argument("--pi-user", default=os.environ.get("PI_SSH_USER", "raspi"))
+    parser.add_argument("--left-hand", default=os.environ.get("TACTILE_LEFT_HOST", "tactile-left.local"))
+    parser.add_argument("--right-hand", default=os.environ.get("TACTILE_RIGHT_HOST", "tactile-right.local"))
+    parser.add_argument("--no-tactile", action="store_true", help="Run without the ESP32 hands")
     args = parser.parse_args()
 
     if port_open(8080) or port_open(8081):
@@ -72,7 +83,7 @@ def main():
     viewer_env = {key: value for key, value in env.items()
                   if key not in {"GEMINI_API_KEY", "ELEVENLABS_API_KEY"}}
 
-    tunnel = voice = viewer = None
+    tunnel = voice = viewer = tactile = None
     compose = ["docker", "compose", "--profile", "viewer"]
     try:
         print(f"Opening SSH bridge to {args.pi_user}@{args.pi_ip}...", flush=True)
@@ -95,12 +106,22 @@ def main():
                 raise RuntimeError("The Gemini web service did not open port 8080.")
             time.sleep(0.2)
 
+        if not args.no_tactile:
+            print("Starting laptop-to-ESP32 tactile sender...", flush=True)
+            tactile = subprocess.Popen([
+                sys.executable, "-m", "companion.voice.tactile_link",
+                "--left", args.left_hand, "--right", args.right_hand,
+            ], cwd=ROOT)
+
         print("Starting Docker RViz viewer...", flush=True)
         viewer = subprocess.Popen(compose + ["up", "rviz-viewer", "--build"], cwd=ROOT, env=viewer_env)
         webbrowser.open("http://localhost:8080")
-        print("Voice: http://localhost:8080 | RViz: localhost:5901 | Ctrl-C stops all three", flush=True)
+        print("Voice: http://localhost:8080 | RViz: localhost:5901 | Ctrl-C stops laptop services", flush=True)
         while True:
-            for label, process in (("SSH tunnel", tunnel), ("voice page", voice), ("RViz viewer", viewer)):
+            for label, process in (("SSH tunnel", tunnel), ("voice page", voice),
+                                   ("tactile sender", tactile), ("RViz viewer", viewer)):
+                if process is None:
+                    continue
                 if process.poll() is not None:
                     raise RuntimeError(f"{label} exited with status {process.returncode}.")
             time.sleep(0.5)
@@ -110,6 +131,7 @@ def main():
         print(f"Launch failed: {error}", file=sys.stderr)
         return 1
     finally:
+        stop_process(tactile, graceful_interrupt=True)
         stop_process(voice)
         stop_process(tunnel)
         stop_process(viewer)

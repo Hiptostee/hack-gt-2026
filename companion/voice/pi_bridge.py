@@ -24,6 +24,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/status":
             return self._send(200, {"camera": self.server.camera.status()}, "application/json")
+        if self.path == "/guidance/state":
+            return self._send(200, self.server.guidance.snapshot(), "application/json")
         if self.path == "/frame":
             try:
                 image, _captured_at = self.server.camera.capture()

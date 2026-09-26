@@ -81,8 +81,13 @@ input at a time. Never connect the AA pack to **3V3** or power the servo from
 1. Install [PlatformIO](https://platformio.org/install) (`brew install platformio`, or
    the PlatformIO IDE extension for VS Code). The first build downloads the ESP32
    platform pinned in `platformio.ini` (pioarduino 55.03.312 = Arduino core 3.3.12).
-2. `cp tactile_hand/secrets.example.h tactile_hand/secrets.h`, then set the same SSID
-   and password you used for `scripts/pi_hotspot.sh up`. `secrets.h` is gitignored.
+2. `cp tactile_hand/secrets.example.h tactile_hand/secrets.h`, then set the SSID
+   and password for the laptop's 2.4 GHz Wi-Fi network. `secrets.h` is gitignored.
+   The network must allow devices to reach each other over UDP; guest Wi-Fi with
+   client isolation will not work. Both hands use DHCP and advertise
+   `tactile-left.local` and `tactile-right.local`. If mDNS does not resolve,
+   read each IP from its serial log and pass `--left-hand IP --right-hand IP`
+   to `scripts/laptop_launch.py`.
 
 ## Build and flash
 

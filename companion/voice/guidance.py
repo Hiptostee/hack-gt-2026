@@ -6,8 +6,10 @@ import rclpy
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Bool
+from std_msgs.msg import UInt8
 
 PATH_VALID_TIMEOUT_S = 1.5
+DIRECTION_TIMEOUT_S = 0.6
 
 
 class RosGuidance:
@@ -19,7 +21,10 @@ class RosGuidance:
         self.path_valid = False
         self.valid_at = 0.0
         self.active = False
+        self.direction = None
+        self.direction_at = 0.0
         self.node.create_subscription(Bool, "/backpack/path_valid", self._valid, 10)
+        self.node.create_subscription(UInt8, "/backpack/direction", self._direction, 10)
         self.timer = self.node.create_timer(0.2, self._publish)
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.node)
@@ -36,6 +41,19 @@ class RosGuidance:
         with self.lock:
             self.path_valid = message.data
             self.valid_at = time.monotonic()
+
+    def _direction(self, message):
+        with self.lock:
+            self.direction = message.data if message.data in range(5) else None
+            self.direction_at = time.monotonic()
+
+    def snapshot(self):
+        with self.lock:
+            now = time.monotonic()
+            valid = self.path_valid and now - self.valid_at <= PATH_VALID_TIMEOUT_S
+            direction = self.direction if now - self.direction_at <= DIRECTION_TIMEOUT_S else None
+            return {"active": self.active, "path_valid": valid,
+                    "direction": direction if self.active and valid else None}
 
     def _publish(self):
         with self.lock:
