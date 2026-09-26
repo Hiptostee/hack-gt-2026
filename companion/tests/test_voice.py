@@ -58,6 +58,7 @@ class FakeSpeech:
 class FakeHazards:
     def __init__(self):
         self.warnings = []
+        self.current = None
 
     def due(self, at):
         return not self.warnings or at - self.warnings[-1] >= 2.0

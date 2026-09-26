@@ -37,6 +37,8 @@ EARCONS = {
     "error": ([300, 220], 0.13, 0.28),
     "too_brief": ([200], 0.05, 0.18),
     "stopped": ([380], 0.05, 0.15),
+    "guardian_on": ([440, 660, 880], 0.09, 0.25),
+    "guardian_off": ([880, 660, 440], 0.09, 0.25),
 }
 
 
@@ -172,6 +174,12 @@ class Audio:
     def stop(self):
         """Barge-in. Never mutes a warning or fault."""
         self.revoke(HELP)
+
+    def local_sound_playing(self):
+        """True while a cue or anything more important than an answer is queued
+        or playing. A microphone sending to the cloud should hear silence then."""
+        with self._out_lock:
+            return bool(self._cues) or any(p.priority < ANSWER for p in self._playbacks)
 
     def _feed(self, playback, samples, rate):
         if len(samples) and rate != self.output_rate:

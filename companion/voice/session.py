@@ -30,16 +30,25 @@ class Session:
         self.history = self.history[-4:]
         self.last_answer = answered
 
-    def save_landmark(self, label):
+    def save_landmark(self, label, captured_at=None):
+        """captured_at is when the camera saw it, not when Gemini answered."""
         if label:
-            self.landmark = {"label": label, "at": time.time()}
+            self.landmark = {"label": label, "at": captured_at or time.time()}
+
+    def _landmark_time(self):
+        return time.strftime("%I:%M %p", time.localtime(self.landmark["at"])).lstrip("0")
 
     def describe_landmark(self):
         if not self.landmark:
             return "No landmark has been observed yet."
-        when = time.strftime("%I:%M %p", time.localtime(self.landmark["at"]))
-        return (f"Last landmark: {self.landmark['label']}, seen at {when}. "
+        return (f"Last landmark: {self.landmark['label']}, seen at {self._landmark_time()}. "
                 "That is a past observation, not your current location.")
+
+    def observation_text(self):
+        """Guardian wording: a timed camera observation, never a location."""
+        if not self.landmark:
+            return "No landmark has been observed."
+        return f"The camera last saw {self.landmark['label']} at {self._landmark_time()}."
 
     def clear(self):
         self.image = None

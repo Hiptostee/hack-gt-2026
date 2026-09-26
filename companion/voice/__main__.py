@@ -41,7 +41,7 @@ WORKING_EVERY = 4
 # Which worker runs each task. Help has its own so it never waits behind a
 # cloud request; spoken replies never wait behind Gemini.
 LANES = {"utterance": "cloud", "repeat": "speech", "say": "speech",
-         "help": "local", "guardian": "local"}
+         "help": "local", "guardian": "local", "guardian_exit": "local"}
 
 
 def network_up():
@@ -75,8 +75,9 @@ def status_text(camera, gemini, session):
 
 class Companion:
     def __init__(self, audio, speech, gemini, camera, session, button, events,
-                 guidance=None, hazards=None):
+                 guidance=None, hazards=None, guardian=None):
         self.audio = audio
+        self.guardian = guardian
         self.speech = speech
         self.gemini = gemini
         self.camera = camera
@@ -110,7 +111,8 @@ class Companion:
                 break
             handler = {"press": self._press, "release": self._release,
                        "taps_due": self._taps_due, "done": self._done,
-                       "hazard": self._hazard}.get(kind)
+                       "hazard": self._hazard, "guardian_request": self._guardian_request,
+                       "guardian_closed": self._guardian_closed}.get(kind)
             if handler:
                 handler(at)
         self.shutdown()
@@ -128,15 +130,53 @@ class Companion:
             self._disarm_cap()
             self.audio.record_stop()
         self.audio.stop()
-        self.state = "idle"
+        if self.state != "guardian":
+            self.state = "idle"
+        warning = None
         if self.hazards is not None:
             self.hazards.warn(at)
+            warning = self.hazards.current
         else:
             self.audio.earcon("stopped", wait=False)
+        if self.state == "guardian":
+            self.guardian.on_hazard(warning)
         print("Hazard warning: companion speech interrupted", file=sys.stderr)
+
+    # ---- guardian --------------------------------------------------------
+
+    def _enter_guardian(self):
+        if self.guardian is None:
+            self._dispatch("guardian", None)
+            return
+        self.generation += 1
+        self._cancel_taps()
+        self.audio.stop()
+        self.state = "guardian"
+        self.guardian.open()
+
+    def _guardian_request(self, _at):
+        """Gemini returned device_action "guardian" for the current question."""
+        if self.state in ("idle", "busy"):
+            self._enter_guardian()
+
+    def _guardian_closed(self, reason):
+        if self.state != "guardian":
+            return
+        self.generation += 1
+        self._cancel_taps()
+        self.audio.stop()
+        self.state = "idle"
+        self._dispatch("guardian_exit", reason)
 
     def _press(self, at):
         if self.state == "recording":
+            return
+        if self.state == "guardian":
+            if self.tap_timer is not None:
+                self.tap_timer.cancel()
+                self.tap_timer = None
+            self.press_at = at
+            self.guardian.press(at)
             return
         # A press only pauses a pending tap chain; its release decides.
         if self.tap_timer is not None:
@@ -156,6 +196,11 @@ class Companion:
         self._arm_cap()
 
     def _release(self, at):
+        if self.state == "guardian":
+            if self.guardian.release(at) == "tap" and at - self.press_at >= SHORT_PRESS:
+                self.taps += 1
+                self._restart_taps()
+            return
         if self.state != "recording":
             return
         self._disarm_cap()
@@ -197,9 +242,16 @@ class Companion:
         if self.state == "recording":
             return  # Fired just as another press began; that release resolves the chain.
         taps, self.taps = self.taps, 0
+        if self.state == "guardian":
+            if taps >= 2:
+                self.guardian.close("exit")  # One tap already stopped the agent at press.
+            return
         if self.state != "idle" or taps == 0:
             return
-        self._dispatch({1: "repeat", 2: "help"}.get(taps, "guardian"), None)
+        if taps >= 3:
+            self._enter_guardian()
+        else:
+            self._dispatch({1: "repeat", 2: "help"}[taps], None)
 
     def _done(self, generation):
         if generation == self.generation and self.state == "busy":
@@ -257,11 +309,14 @@ class Companion:
             self._help(generation)
         elif kind == "guardian":
             self._guardian(generation)
+        elif kind == "guardian_exit":
+            self._guardian_exit(payload, generation)
         elif kind == "say":
             self._speak(payload, generation)
 
     def _utterance(self, wav, generation):
         image = None
+        captured_at = None
         try:
             image, captured_at = self.camera.capture()
             self.session.set_image(image, captured_at)
@@ -281,7 +336,7 @@ class Companion:
             print(f"heard: {result['transcript']}", flush=True)
         print(f"answer: {result['answer']}", flush=True)
         self.session.add_exchange(result["transcript"], result["answer"])
-        self.session.save_landmark(result["landmark"])
+        self.session.save_landmark(result["landmark"], captured_at)
         self._act(result, previous, generation)
 
     def _act(self, result, previous, generation):
@@ -306,7 +361,10 @@ class Companion:
             self._help(generation)
             return
         if action == "guardian":
-            self._guardian(generation)
+            if self.guardian is None:
+                self._guardian(generation)
+            elif generation == self.generation:
+                self.events.put(("guardian_request", time.monotonic()))
             return
         if action == "louder":
             self.audio.gain = min(2.5, self.audio.gain + 0.3)
@@ -319,9 +377,25 @@ class Companion:
                     local=True, priority=HELP)
 
     def _guardian(self, generation):
-        # Entry point for companion/guardian/specs.md §2; the session is not built yet.
-        self._speak("Guardian mode isn't available on this device yet.", generation,
+        """Guardian was asked for but is not configured on this device."""
+        self._speak("Guardian mode isn't set up on this device.", generation,
                     local=True, priority=HELP)
+
+    def _guardian_exit(self, reason, generation):
+        """Every way out of Guardian ends in the device's own voice (spec §2)."""
+        from companion.guardian.session import EXIT_LINES
+
+        if reason != "offline":
+            self.audio.earcon("guardian_off")
+        if reason == "cancelled":
+            self._speak(EXIT_LINES[reason], generation, local=True, priority=HELP)
+            return
+        status = status_text(self.camera, self.gemini, self.session)
+        if reason == "offline":
+            text = f"{status} {EXIT_LINES[reason]}"
+        else:
+            text = f"{EXIT_LINES.get(reason, EXIT_LINES['ended'])} {status}"
+        self._speak(text, generation, local=True, priority=HELP)
 
     def _speak(self, text, generation, local=False, priority=None):
         if generation != self.generation:
@@ -349,6 +423,8 @@ class Companion:
         self.running = False
         self._disarm_cap()
         self._cancel_taps()
+        if self.guardian is not None:
+            self.guardian.shutdown()
         self.speech.stop()
         for lane in self.lanes.values():
             lane.put(None)
@@ -406,14 +482,23 @@ def main():
     if args.ros:
         from companion.voice.guidance import RosGuidance
         guidance = RosGuidance()
+    session = Session()
+    guardian = None
+    if os.environ.get("ELEVENLABS_API_KEY") and os.environ.get("ELEVENLABS_AGENT_ID"):
+        from companion.guardian.session import from_env
+        guardian = from_env(audio, speech, camera, gemini, session,
+                            status=lambda: status_text(camera, gemini, session),
+                            network_up=network_up,
+                            notify=lambda reason: events.put(("guardian_closed", reason)))
     print(f"Voice companion on {platform.system()}. "
           f"Gemini: {'configured' if gemini.key else 'MISSING KEY'}. "
           f"Speech: {'ElevenLabs' if speech.key and speech.voice_id else 'local engine'}. "
           f"Hazard phrase: {'ready' if hazards.phrase_ready else 'tone only'}. "
+          f"Guardian: {guardian.describe() if guardian else 'not configured'}. "
           f"Camera: {camera.status()}.", flush=True)
 
-    companion = Companion(audio, speech, gemini, camera, Session(), button, events,
-                          guidance, hazards)
+    companion = Companion(audio, speech, gemini, camera, session, button, events,
+                          guidance, hazards, guardian)
     try:
         companion.run()
     except KeyboardInterrupt:
