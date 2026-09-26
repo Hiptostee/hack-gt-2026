@@ -149,12 +149,13 @@ Verify `ros2 topic info /icp/points` reports one publisher and
 `ros2 topic hz /icp_odom` receives messages before evaluating mapping quality.
 A topic listed only because ICP subscribes to it is not proof of cloud output.
 
-ICP automatic reset is disabled: on sustained tracking loss, stop moving and
-return to the last tracked view. If it cannot recover, restart the mapping run
-(the current launch starts a fresh database). An EKF cannot recover translation
-from the IMU alone while both odometry sources are lost. Start level and keep the
-rig still during gyro calibration so the relative IMU reference matches the
-initial odometry reference.
+ICP predicts motion from its last successful registration and resets its local
+scan map after five consecutive failures. A reset is recovery from lost tracking,
+not a guarantee that the trajectory stayed accurate; repeated resets mean the
+depth geometry or registration still needs attention. An EKF cannot recover
+translation from the IMU alone while both odometry sources are lost. Start level
+and keep the rig still during gyro calibration so the relative IMU reference
+matches the initial odometry reference.
 
 For a repeatable check, hold still for 10 seconds after calibration, move slowly
 one metre and back, then turn slowly while viewing furniture or a room corner.

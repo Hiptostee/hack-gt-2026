@@ -301,10 +301,13 @@ def generate_launch_description():
                 "scan_voxel_size": ParameterValue(icp_voxel_size, value_type=float),
                 "scan_normal_k": 20,
                 "scan_cloud_max_points": 0,
-                "Odom/GuessMotion": "false",
-                # Stop publishing valid poses on loss instead of repeatedly
-                # reseeding the primary trajectory from an extrapolated EKF.
-                "Odom/ResetCountdown": "0",
+                # Scan-only ICP needs a non-null prediction after its first
+                # successful registrations. Without one, a lost scan leaves
+                # RegistrationIcp rejecting every subsequent scan immediately.
+                "Odom/GuessMotion": "true",
+                # Reinitialize the scan map after sustained registration loss.
+                # Zero disables recovery and traps ICP at ratio=0 indefinitely.
+                "Odom/ResetCountdown": "5",
                 "Odom/ScanKeyFrameThr": "0.5",
                 "OdomF2M/ScanSubtractRadius": ParameterValue(icp_voxel_size, value_type=str),
                 "OdomF2M/ScanMaxSize": "8000",
