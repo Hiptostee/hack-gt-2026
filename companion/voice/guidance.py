@@ -7,6 +7,8 @@ from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Bool
 
+PATH_VALID_TIMEOUT_S = 1.5
+
 
 class RosGuidance:
     def __init__(self):
@@ -42,7 +44,7 @@ class RosGuidance:
 
     def start(self):
         with self.lock:
-            if not self.path_valid or time.monotonic() - self.valid_at > 0.5:
+            if not self.path_valid or time.monotonic() - self.valid_at > PATH_VALID_TIMEOUT_S:
                 return "I cannot find a current route to the backpack. Please try again."
             self.active = True
         self._publish()

@@ -26,7 +26,7 @@ public:
     rotate_start_rad_ = declare_parameter<double>("rotate_start_rad", 1.05);
     rotate_stop_rad_ = declare_parameter<double>("rotate_stop_rad", 0.85);
     path_timeout_s_ = declare_parameter<double>("path_timeout_s", 1.5);
-    validity_timeout_s_ = declare_parameter<double>("validity_timeout_s", 0.5);
+    validity_timeout_s_ = declare_parameter<double>("validity_timeout_s", 1.5);
 
     command_pub_ = create_publisher<std_msgs::msg::UInt8>("/backpack/direction", 10);
     active_sub_ = create_subscription<std_msgs::msg::Bool>(
@@ -34,6 +34,9 @@ public:
       [this](std_msgs::msg::Bool::ConstSharedPtr message) {
         active_ = message->data;
         last_active_ = std::chrono::steady_clock::now();
+        if (!active_) {
+          have_direction_ = false;
+        }
       });
     path_sub_ = create_subscription<nav_msgs::msg::Path>(
       "/backpack/path", 10, std::bind(&BackpackDirection::path_callback, this, _1));
