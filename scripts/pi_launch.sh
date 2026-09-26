@@ -11,6 +11,12 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-42}"
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 unset ROS_DISCOVERY_SERVER ZENOH_CONFIG_OVERRIDE
 
+if python3 -c 'import socket; s = socket.socket(); result = s.connect_ex(("127.0.0.1", 8081)); s.close(); raise SystemExit(result != 0)'; then
+  echo "Port 8081 is already in use by a Pi bridge. Stop that old bridge before starting this launch." >&2
+  echo "Find it with: ss -ltnp '( sport = :8081 )'" >&2
+  exit 1
+fi
+
 router_pid=""
 mapping_pid=""
 cleanup() {
