@@ -13,6 +13,7 @@ def generate_launch_description():
     realsense_share = get_package_share_directory("realsense2_camera")
     mapper_share = get_package_share_directory("realsense_mapper")
     camera_source = LaunchConfiguration("camera_source")
+    enable_backpack_stack = LaunchConfiguration("enable_backpack_stack")
     use_realsense = IfCondition(
         PythonExpression(["'", camera_source, "' == 'realsense'"])
     )
@@ -91,6 +92,11 @@ def generate_launch_description():
             "camera_source",
             default_value="realsense",
             description="realsense for native Linux USB, tcp for the macOS host bridge",
+        ),
+        DeclareLaunchArgument(
+            "enable_backpack_stack",
+            default_value="true",
+            description="Start YOLO detection and backpack path planning",
         ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
@@ -182,6 +188,7 @@ def generate_launch_description():
             executable="backpack_detector_node",
             name="backpack_detector",
             output="screen",
+            condition=IfCondition(enable_backpack_stack),
             parameters=[{
                 "model_path": "/opt/models/yolox.onnx",
                 "confidence_threshold": 0.18,
@@ -197,6 +204,7 @@ def generate_launch_description():
             executable="backpack_path_planner_node",
             name="backpack_path_planner",
             output="screen",
+            condition=IfCondition(enable_backpack_stack),
             parameters=[{
                 # Heading changes add cost, producing fewer and longer straight
                 # segments without allowing the path to cross occupied cells.

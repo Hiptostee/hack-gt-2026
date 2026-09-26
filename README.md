@@ -87,6 +87,13 @@ source ros_ws/install/setup.bash
 ros2 launch realsense_mapper hardware.launch.py
 ```
 
+To isolate camera, odometry, and SLAM performance on the Pi without running
+YOLO detection or backpack path planning, launch with:
+
+```bash
+ros2 launch realsense_mapper hardware.launch.py enable_backpack_stack:=false
+```
+
 The hardware launch file starts the D415 directly over USB. The installer adds
 ROS 2 Jazzy, installs package dependencies with `rosdep`,
 and builds the workspace with `colcon`. RViz/noVNC are intentionally not
