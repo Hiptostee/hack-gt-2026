@@ -60,28 +60,33 @@ Opens `http://localhost:8080`. Features:
 
 ### Current demo: click and speak on the laptop, camera and navigation on the Pi
 
-Run the ROS backpack stack on the Pi, then start the web voice service in a
-second Pi terminal from the repository root:
+Run the ROS backpack stack on the Pi, then start its camera/guidance bridge in a
+second Pi terminal from the repository root. The Pi does not need a Gemini key:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 source ros_ws/install/setup.bash
-export GEMINI_API_KEY='your-key'
-python3 -m companion.voice.web_test --ros --no-open
+python3 -m companion.voice.pi_bridge
 ```
 
-On the laptop, forward the service over SSH and open `http://localhost:8080`:
+On the laptop, forward the bridge over SSH:
 
 ```bash
-ssh -L 8080:localhost:8080 ubuntu@PI_LAN_ADDRESS
+ssh -N -L 8081:127.0.0.1:8081 ubuntu@PI_LAN_ADDRESS
 ```
 
-Click and hold the browser button to speak through the laptop microphone, then
-release it. The Pi server reads its latest ROS camera frame and sends that JPEG
-with the recorded audio to Gemini. Answers play in the laptop browser. A spoken
-backpack navigation request activates the ROS guidance gate on the Pi. Using the
-SSH tunnel makes the page a localhost browser context, so microphone permission
-works without deploying HTTPS. Leave the SSH terminal open during the demo.
+In another laptop terminal, set `GEMINI_API_KEY` and start the web service:
+
+```bash
+python3 -m companion.voice.web_test --pi-url http://127.0.0.1:8081
+```
+
+Open `http://localhost:8080`. Click and hold the browser button to speak through
+the laptop microphone, then release it. The laptop fetches one current JPEG from
+the Pi through the tunnel and sends the audio and JPEG to Gemini from the laptop.
+Answers play in the laptop browser. A spoken backpack navigation request goes
+back through the tunnel to activate the ROS guidance gate on the Pi. Keep the SSH
+tunnel open during the demo.
 
 ### Model Configuration
 

@@ -1006,6 +1006,7 @@ def main():
     parser.add_argument("--image", help="Fallback JPEG when no webcam is available")
     parser.add_argument("--ros", action="store_true",
                         help="Use the Pi ROS camera and backpack guidance with a laptop browser")
+    parser.add_argument("--pi-url", help="Laptop mode: Pi bridge URL through an SSH tunnel")
     parser.add_argument("--topic", default="/camera/color/image_raw")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
@@ -1014,6 +1015,8 @@ def main():
     parser.add_argument("--no-open", action="store_true",
                         help="Don't auto-open the browser")
     args = parser.parse_args()
+    if args.ros and args.pi_url:
+        parser.error("Choose --ros on the Pi or --pi-url on the laptop")
 
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     el_key = os.environ.get("ELEVENLABS_API_KEY", "")
@@ -1041,6 +1044,10 @@ def main():
         from companion.voice.guidance import RosGuidance
         server.ros_camera = RosCamera(args.topic)
         server.guidance = RosGuidance()
+    elif args.pi_url:
+        from companion.voice.pi_bridge import RemotePi
+        server.ros_camera = RemotePi(args.pi_url)
+        server.guidance = server.ros_camera
 
     if args.image:
         path = Path(args.image)

@@ -12,7 +12,7 @@ The stack includes:
 - 2D occupancy grid on `/rtabmap/map`
 - YOLOX black-backpack detection on `/yolo/annotated_image`
 - heading-aware A* route to a detected backpack on `/backpack/path`
-- button-and-voice scene companion that can activate backpack guidance
+- laptop voice companion that uses the Pi camera and can activate backpack guidance
 - 60 Hz EKF stabilization between visual odometry updates
 - RViz inside an XFCE desktop served by TigerVNC and noVNC
 - a small C++ status node that verifies both map outputs are arriving

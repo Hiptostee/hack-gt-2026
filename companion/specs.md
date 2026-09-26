@@ -4,7 +4,8 @@
 > accepts spoken backpack guidance requests and gates the existing ROS direction
 > output; see `companion/README.md` for the current behavior.
 > For the current demo, the push-to-talk button, microphone, and spoken answer
-> are in the laptop browser. The Pi supplies the ROS camera frame and guidance.
+> are in the laptop browser. Gemini runs from the laptop web service; the Pi
+> supplies the ROS camera frame and guidance through an SSH tunnel.
 
 On-device voice interface for the wearable spatial guide. Replaces the
 phone/browser companion prototype in `companion/`.
