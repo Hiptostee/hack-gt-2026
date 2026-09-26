@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 
@@ -23,12 +23,14 @@ class RosCamera:
         self.age_at_receipt = float("inf")
         self.subscription = self.node.create_subscription(Image, topic, self.receive,
                                                          qos_profile_sensor_data)
+        self.executor = SingleThreadedExecutor()
+        self.executor.add_node(self.node)
         self.thread = threading.Thread(target=self.spin, daemon=True)
         self.thread.start()
 
     def spin(self):
         try:
-            rclpy.spin(self.node)
+            self.executor.spin()
         except ExternalShutdownException:
             pass
 
@@ -70,6 +72,8 @@ class RosCamera:
         return encoded.tobytes(), time.time() - age
 
     def close(self):
-        rclpy.shutdown()
+        self.executor.shutdown()
         self.thread.join(timeout=2)
+        self.executor.remove_node(self.node)
         self.node.destroy_node()
+        rclpy.shutdown()

@@ -16,7 +16,8 @@ class CameraTests(unittest.TestCase):
         modules = {
             "cv2": Mock(), "numpy": Mock(), "rclpy": Mock(),
             "rclpy.node": SimpleNamespace(Node=Mock()),
-            "rclpy.executors": SimpleNamespace(ExternalShutdownException=RuntimeError),
+            "rclpy.executors": SimpleNamespace(ExternalShutdownException=RuntimeError,
+                                                 SingleThreadedExecutor=Mock()),
             "rclpy.qos": SimpleNamespace(qos_profile_sensor_data=object()),
             "sensor_msgs": Mock(), "sensor_msgs.msg": SimpleNamespace(Image=Mock())}
         with patch.dict(sys.modules, modules):

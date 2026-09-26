@@ -3,6 +3,7 @@ import threading
 import time
 
 import rclpy
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Bool
 
@@ -18,8 +19,16 @@ class RosGuidance:
         self.active = False
         self.node.create_subscription(Bool, "/backpack/path_valid", self._valid, 10)
         self.timer = self.node.create_timer(0.2, self._publish)
-        self.thread = threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True)
+        self.executor = SingleThreadedExecutor()
+        self.executor.add_node(self.node)
+        self.thread = threading.Thread(target=self._spin, daemon=True)
         self.thread.start()
+
+    def _spin(self):
+        try:
+            self.executor.spin()
+        except ExternalShutdownException:
+            pass
 
     def _valid(self, message):
         with self.lock:
@@ -46,5 +55,7 @@ class RosGuidance:
 
     def close(self):
         self.stop()
-        self.node.destroy_node()
+        self.executor.shutdown()
         self.thread.join(timeout=2)
+        self.executor.remove_node(self.node)
+        self.node.destroy_node()
