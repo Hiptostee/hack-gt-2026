@@ -1,0 +1,24 @@
+services:
+  mapper:
+    build:
+      context: .
+    image: realsense-rtabmap-poc:jazzy
+    container_name: realsense-rtabmap-poc
+    environment:
+      DISPLAY: ":1"
+      VNC_RESOLUTION: "1600x1000"
+      ROS_LAUNCH_FILE: "mac_test.launch.py"
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-42}"
+    ports:
+      - "127.0.0.1:5901:5901"
+      - "127.0.0.1:6080:6080"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'ros2 launch realsense_mapper' >/dev/null && pgrep Xvnc >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+    shm_size: "1gb"
+    restart: unless-stopped

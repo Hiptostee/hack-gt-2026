@@ -1,0 +1,74 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Ground Grid
+      Enabled: true
+      Cell Size: 1
+      Plane: XY
+      Reference Frame: map
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Frame Timeout: 15
+      Show Names: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Accumulated 3D Map
+      Enabled: true
+      Topic:
+        Value: /rtabmap/cloud_map
+        Reliability Policy: Best Effort
+      Size (Pixels): 2
+      Style: Points
+      Color Transformer: RGB8
+      Decay Time: 0
+    - Class: rviz_default_plugins/Map
+      Name: 2D Occupancy Map
+      Enabled: true
+      Topic:
+        Value: /rtabmap/map
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Alpha: 0.65
+      Color Scheme: map
+    - Class: rviz_default_plugins/Path
+      Name: Backpack A* Path
+      Enabled: true
+      Topic:
+        Value: /backpack/path
+        Reliability Policy: Reliable
+      Line Style: Lines
+      Line Width: 0.08
+      Color: 255; 65; 35
+    - Class: rviz_default_plugins/Image
+      Name: Backpack Detection and Route
+      Enabled: true
+      Topic:
+        Value: /backpack/planner_image
+        Reliability Policy: Best Effort
+  Global Options:
+    Background Color: 32; 34; 38
+    Fixed Frame: map
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 5
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Name: Current View
+      Pitch: 0.55
+      Yaw: 0.8
+Window Geometry:
+  Height: 1000
+  Width: 1600

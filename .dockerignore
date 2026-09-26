@@ -1,0 +1,11 @@
+.git
+.gitignore
+.DS_Store
+build
+install
+log
+data
+host_streamer/build
+host_streamer/build-local
+**/__pycache__
+**/*.pyc
