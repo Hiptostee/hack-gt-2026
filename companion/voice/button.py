@@ -9,10 +9,15 @@ class GpioButton:
     """Momentary button on a GPIO pin, wired to ground with an internal pull-up."""
 
     def __init__(self, pin, events):
-        from gpiozero import Button  # Imported here so dev machines never need it.
-
+        try:
+            from gpiozero import Button  # Imported here so dev machines never need it.
+        except ImportError:
+            raise RuntimeError("gpiozero is required for GPIO button. Install with: sudo apt install python3-gpiozero python3-lgpio")
         self.events = events
-        self.button = Button(pin, pull_up=True, bounce_time=0.02)
+        try:
+            self.button = Button(pin, pull_up=True, bounce_time=0.02)
+        except Exception as error:
+            raise RuntimeError(f"Could not open GPIO pin {pin} ({error}). On Pi 5, ensure python3-lgpio is installed.") from error
         self.button.when_pressed = lambda: events.put(("press", time.monotonic()))
         self.button.when_released = lambda: events.put(("release", time.monotonic()))
 
@@ -73,4 +78,8 @@ def open_button(pin, events=None):
     events = events if events is not None else queue.Queue()
     if pin is None:
         return KeyboardButton(events), events
-    return GpioButton(pin, events), events
+    try:
+        return GpioButton(pin, events), events
+    except Exception as error:
+        print(f"GPIO button initialization failed: {error}\nFalling back to keyboard controls.", file=sys.stderr)
+        return KeyboardButton(events), events
