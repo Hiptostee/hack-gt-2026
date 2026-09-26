@@ -5,7 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -158,9 +158,15 @@ def generate_launch_description():
                 "depth_module.depth_profile": camera_profile,
                 "rgb_camera.enable_auto_exposure": "false",
                 "depth_module.enable_auto_exposure": "false",
-                "config_file": os.path.join(
-                    mapper_share, "config", "realsense_motion.yaml"
-                ),
+                # ARM librealsense can name its filter Pointcloud (NEON),
+                # yielding pointcloud__neon_.* ROS parameters. rs_launch does
+                # not forward unknown launch arguments, but forwards YAML keys.
+                "config_file": PathJoinSubstitution([
+                    mapper_share, "config", PythonExpression([
+                        "'realsense_motion_icp.yaml' if '", enable_icp,
+                        "'.lower() in ('true', '1') else 'realsense_motion.yaml'",
+                    ]),
+                ]),
                 "initial_reset": "true",
             }.items(),
             condition=use_realsense,

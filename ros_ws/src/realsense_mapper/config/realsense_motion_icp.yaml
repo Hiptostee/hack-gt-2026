@@ -1,0 +1,14 @@
+# Keep exposure settings identical to realsense_motion.yaml. Selected only
+# for enable_icp:=true; both standard and ARM NEON filter names are covered.
+rgb_camera.enable_auto_exposure: false
+rgb_camera.exposure: 280
+rgb_camera.gain: 128
+depth_module.enable_auto_exposure: false
+depth_module.exposure: 4000
+depth_module.gain: 16
+pointcloud.enable: true
+pointcloud.allow_no_texture_points: true
+pointcloud.ordered_pc: false
+pointcloud__neon_.enable: true
+pointcloud__neon_.allow_no_texture_points: true
+pointcloud__neon_.ordered_pc: false

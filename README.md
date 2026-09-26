@@ -140,6 +140,13 @@ guarantees. If ICP processing consistently exceeds the 67 ms frame interval at
 15 FPS or delay keeps growing, add `icp_voxel_size:=0.08` to reduce load. Keep
 `odom_image_decimation:=1` initially to preserve visual features.
 
+On ARM builds, librealsense may expose `pointcloud__neon_.enable` instead of
+`pointcloud.enable`. The ICP camera YAML enables both variants. The wrapper
+may warn that the NEON YAML keys are unsupported, but passes them to the node.
+Verify `ros2 topic info /camera/depth/color/points` reports one publisher and
+`ros2 topic hz /icp_odom` receives messages before evaluating mapping quality.
+A topic listed only because ICP subscribes to it is not proof of cloud output.
+
 ICP automatic reset is disabled: on sustained tracking loss, stop moving and
 return to the last tracked view. If it cannot recover, restart the mapping run
 (the current launch starts a fresh database). An EKF cannot recover translation
