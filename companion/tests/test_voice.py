@@ -6,9 +6,12 @@ import queue
 import unittest
 from unittest import mock
 
+import numpy as np
+
 from companion.errors import AppError
 from companion.voice import gemini as gemini_module
 from companion.voice.__main__ import HOLD, SHORT_PRESS, Companion
+from companion.voice.audio import ANSWER, HELP, URGENT, Audio
 from companion.voice.session import Session
 
 
@@ -20,9 +23,9 @@ class FakeAudio:
         self.earcons = []
         self.recording = False
         self.peak = peak
-        self.played = 0
+        self.stops = 0
 
-    def earcon(self, name):
+    def earcon(self, name, wait=True):
         self.earcons.append(name)
 
     def record_start(self):
@@ -32,29 +35,35 @@ class FakeAudio:
         self.recording = False
         return b"RIFFfake", 2.0, self.peak
 
-    def play(self, _samples, _rate):
-        self.played += 1
-        return True
-
-    def pulsed(self, **_kwargs):
-        return []
-
     def stop(self):
-        pass
+        self.stops += 1
 
 
 class FakeSpeech:
     def __init__(self):
         self.said = []
+        self.priorities = []
         self.stops = 0
         self.key = ""
         self.voice_id = ""
 
-    def say(self, text, local=False):
+    def say(self, text, local=False, priority=ANSWER):
         self.said.append((text, local))
+        self.priorities.append(priority)
 
     def stop(self):
         self.stops += 1
+
+
+class FakeHazards:
+    def __init__(self):
+        self.warnings = []
+
+    def due(self, at):
+        return not self.warnings or at - self.warnings[-1] >= 2.0
+
+    def warn(self, at):
+        self.warnings.append(at)
 
 
 class FakeGemini:
@@ -92,12 +101,32 @@ class FakeCamera:
         pass
 
 
-def build(gemini=None, camera=None, audio=None):
+def build(gemini=None, camera=None, audio=None, hazards=None):
     audio = audio or FakeAudio()
     speech = FakeSpeech()
     companion = Companion(audio, speech, gemini or FakeGemini(), camera or FakeCamera(),
-                          Session(), button=None, events=queue.Queue())
+                          Session(), button=None, events=queue.Queue(),
+                          hazards=hazards or FakeHazards())
     return companion, audio, speech
+
+
+def queued(companion):
+    """Every task waiting on any worker lane, as (kind, payload)."""
+    tasks = []
+    for lane in companion.lanes.values():
+        while not lane.empty():
+            kind, _generation, payload = lane.get_nowait()
+            tasks.append((kind, payload))
+    return tasks
+
+
+def tap(companion, times=1, at=0.0):
+    for _ in range(times):
+        companion._press(at)
+        companion._release(at + SHORT_PRESS + 0.05)
+    if companion.tap_timer is not None:
+        companion.tap_timer.cancel()
+    companion._taps_due(at)
 
 
 class PressGestures(unittest.TestCase):
@@ -107,9 +136,7 @@ class PressGestures(unittest.TestCase):
         self.assertTrue(audio.recording)
         self.assertIn("listening", audio.earcons)
         companion._release(HOLD + 0.5)
-        kind, _generation, payload = companion.tasks.get_nowait()
-        self.assertEqual(kind, "utterance")
-        self.assertEqual(payload, b"RIFFfake")
+        self.assertEqual(queued(companion), [("utterance", b"RIFFfake")])
         self.assertEqual(companion.state, "busy")
 
     def test_press_under_threshold_is_ignored(self):
@@ -117,33 +144,62 @@ class PressGestures(unittest.TestCase):
         companion._press(0.0)
         companion._release(SHORT_PRESS / 2)
         self.assertIn("too_brief", audio.earcons)
-        self.assertTrue(companion.tasks.empty())
+        self.assertEqual(queued(companion), [])
         self.assertEqual(companion.state, "idle")
+        self.assertIsNone(companion.tap_timer)
 
-    def test_short_press_repeats_after_double_window(self):
+    def test_short_press_waits_for_the_window_then_repeats(self):
         companion, _audio, _ = build()
         companion._press(0.0)
         companion._release(SHORT_PRESS + 0.05)
-        self.assertTrue(companion.tasks.empty())  # Still waiting for a second press.
-        companion.short_timer.cancel()
-        companion._repeat_due(0.0)
-        kind, _generation, _payload = companion.tasks.get_nowait()
-        self.assertEqual(kind, "repeat")
+        self.assertEqual(queued(companion), [])  # Still waiting for more taps.
+        self.assertIsNotNone(companion.tap_timer)
+        companion.tap_timer.cancel()
+        companion._taps_due(0.0)
+        self.assertEqual(queued(companion), [("repeat", None)])
 
-    def test_double_short_press_opens_help(self):
+    def test_double_tap_opens_help(self):
         companion, _audio, _ = build()
-        for _ in range(2):
-            companion._press(0.0)
-            companion._release(SHORT_PRESS + 0.05)
-        kind, _generation, _payload = companion.tasks.get_nowait()
+        tap(companion, times=2)
+        self.assertEqual(queued(companion), [("help", None)])
+
+    def test_triple_tap_opens_guardian(self):
+        companion, _audio, _ = build()
+        tap(companion, times=3)
+        self.assertEqual(queued(companion), [("guardian", None)])
+
+    def test_help_runs_on_its_own_lane_not_behind_cloud_work(self):
+        companion, _audio, _ = build()
+        companion.lanes["cloud"].put(("utterance", companion.generation, b"slow"))
+        tap(companion, times=2)
+        kind, _generation, _payload = companion.lanes["local"].get_nowait()
         self.assertEqual(kind, "help")
-        self.assertIsNone(companion.short_timer)
+
+    def test_hold_resets_a_pending_tap_chain(self):
+        companion, _audio, _ = build()
+        companion._press(0.0)
+        companion._release(SHORT_PRESS + 0.05)
+        companion._press(1.0)
+        companion._release(1.0 + HOLD + 0.5)
+        self.assertEqual(companion.taps, 0)
+        self.assertEqual(queued(companion), [("utterance", b"RIFFfake")])
+
+    def test_chain_timer_firing_mid_press_does_not_lose_taps(self):
+        companion, _audio, _ = build()
+        companion._press(0.0)
+        companion._release(SHORT_PRESS + 0.05)
+        companion._press(0.4)
+        companion._taps_due(0.5)  # Queued just before the press cancelled it.
+        companion._release(0.4 + SHORT_PRESS + 0.05)
+        companion.tap_timer.cancel()
+        companion._taps_due(1.0)
+        self.assertEqual(queued(companion), [("help", None)])
 
     def test_silent_capture_is_not_sent_to_gemini(self):
         companion, _audio, _ = build(audio=FakeAudio(peak=10))
         companion._press(0.0)
         companion._release(HOLD + 0.5)
-        kind, _generation, payload = companion.tasks.get_nowait()
+        [(kind, payload)] = queued(companion)
         self.assertEqual(kind, "say")
         self.assertIn("did not hear", payload)
 
@@ -156,6 +212,33 @@ class PressGestures(unittest.TestCase):
         self.assertIn("stopped", audio.earcons)
         self.assertGreater(companion.generation, before)
         self.assertEqual(companion.state, "recording")
+        companion._disarm_cap()  # Its 30 s cap timers would hold the test run open.
+
+    def test_tap_while_busy_cancels_without_repeat(self):
+        companion, _audio, speech = build()
+        companion.state = "busy"
+        companion._press(0.0)
+        companion._release(SHORT_PRESS + 0.05)
+        self.assertEqual(speech.stops, 1)
+        self.assertEqual(companion.state, "idle")
+        self.assertIsNone(companion.tap_timer)
+        self.assertEqual(queued(companion), [])
+
+    def test_hold_while_busy_still_asks_a_new_question(self):
+        companion, _audio, _ = build()
+        companion.state = "busy"
+        companion._press(0.0)
+        companion._release(HOLD + 0.5)
+        self.assertEqual(queued(companion), [("utterance", b"RIFFfake")])
+
+    def test_superseded_task_is_skipped_by_the_worker(self):
+        companion, _audio, speech = build()
+        lane = companion.lanes["local"]
+        lane.put(("help", companion.generation - 1, None))
+        lane.put(None)
+        companion._worker(lane)
+        self.assertEqual(speech.said, [])
+        self.assertEqual(companion.events.get_nowait()[0], "done")
 
     def test_stale_done_event_does_not_clear_new_state(self):
         companion, _audio, _ = build()
@@ -399,32 +482,159 @@ class GeminiRetries(unittest.TestCase):
 
 
 class Help(unittest.TestCase):
-    def test_help_speaks_status_locally_then_arms_locator(self):
-        companion, audio, speech = build()
+    def setUp(self):
+        patcher = mock.patch("companion.voice.__main__.network_up", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_help_speaks_status_locally_at_help_priority(self):
+        companion, _audio, speech = build()
         companion._help(companion.generation)
         text, local = speech.said[0]
         self.assertTrue(local, "status must use the offline engine")
         self.assertIn("Camera:", text)
-        self.assertIn("locator", text)
-        self.assertEqual(audio.played, 0)
+        self.assertEqual(speech.priorities[0], HELP)
 
-    def test_second_help_plays_the_locator(self):
-        companion, audio, _ = build()
+    def test_repeated_help_never_mentions_or_plays_a_locator(self):
+        companion, _audio, speech = build()
         companion._help(companion.generation)
         companion._help(companion.generation)
-        self.assertEqual(audio.played, 1)
+        self.assertEqual(len(speech.said), 2)
+        for text, _local in speech.said:
+            self.assertNotIn("locator", text.lower())
+
+    def test_guardian_action_is_announced_not_silent(self):
+        companion, _audio, speech = build()
+        companion._act({"transcript": "", "answer": "", "landmark": "",
+                        "device_action": "guardian"}, "", companion.generation)
+        self.assertIn("Guardian", speech.said[0][0])
 
 
 class HazardPreemption(unittest.TestCase):
-    def test_hazard_warning_cuts_speech_immediately(self):
-        companion, audio, speech = build()
+    def test_idle_hazard_plays_the_warning(self):
+        companion, _audio, _ = build()
+        companion._hazard(10.0)
+        self.assertEqual(companion.hazards.warnings, [10.0])
+        self.assertEqual(companion.state, "idle")
+
+    def test_hazard_while_busy_invalidates_and_stops_speech(self):
+        companion, audio, _ = build()
         companion.state = "busy"
         gen_before = companion.generation
-        companion._hazard(0.0)
-        self.assertEqual(speech.stops, 1)
-        self.assertIn("stopped", audio.earcons)
+        companion._hazard(10.0)
+        self.assertEqual(audio.stops, 1)
         self.assertGreater(companion.generation, gen_before)
         self.assertEqual(companion.state, "idle")
+        self.assertEqual(len(companion.hazards.warnings), 1)
+
+    def test_hazard_while_recording_discards_the_question(self):
+        companion, audio, _ = build()
+        companion._press(10.0)
+        companion._hazard(10.5)
+        self.assertFalse(audio.recording)
+        self.assertEqual(companion.cap_timers, [])
+        companion._release(10.0 + HOLD + 1.0)  # The interrupted press lets go.
+        self.assertEqual(queued(companion), [])
+        self.assertEqual(companion.state, "idle")
+
+    def test_hazard_cancels_a_pending_tap_chain(self):
+        companion, _audio, _ = build()
+        companion._press(10.0)
+        companion._release(10.0 + SHORT_PRESS + 0.05)
+        companion._hazard(10.3)
+        self.assertIsNone(companion.tap_timer)
+        companion._taps_due(10.8)
+        self.assertEqual(queued(companion), [])
+
+    def test_repeated_hazard_inside_cooldown_changes_nothing(self):
+        companion, _audio, _ = build()
+        companion._hazard(10.0)
+        generation = companion.generation
+        companion._hazard(11.0)
+        self.assertEqual(companion.generation, generation)
+        self.assertEqual(companion.hazards.warnings, [10.0])
+        companion._hazard(12.5)
+        self.assertEqual(len(companion.hazards.warnings), 2)
+
+    def test_stale_answer_after_hazard_is_not_spoken(self):
+        companion, _audio, speech = build()
+        generation = companion.generation
+        companion._hazard(10.0)
+        companion._utterance(b"wav", generation)
+        self.assertEqual(speech.said, [])
+
+
+def tone(value, count):
+    return np.full(count, value, dtype=np.int16)
+
+
+class AudioOwner(unittest.TestCase):
+    """Drives the output owner's mixer directly; no device is opened."""
+
+    def setUp(self):
+        self.audio = Audio(start_output=False)
+
+    def test_clip_plays_then_finishes(self):
+        playback = self.audio.submit(tone(1000, 300))
+        self.assertTrue((self.audio._render(300) == 1000).all())
+        self.audio._render(10)
+        self.assertTrue(playback.done.is_set())
+        self.assertFalse(playback.cancelled)
+
+    def test_more_important_speech_goes_first_and_the_rest_waits(self):
+        answer = self.audio.submit(tone(1, 100), priority=ANSWER)
+        warning = self.audio.submit(tone(9, 100), priority=URGENT)
+        self.assertTrue((self.audio._render(100) == 9).all())
+        self.audio._render(1)
+        self.assertTrue(warning.done.is_set())
+        self.assertFalse(answer.cancelled, "unstarted speech waits its turn")
+
+    def test_warning_cancels_a_started_answer_for_good(self):
+        answer = self.audio.stream(ANSWER)
+        answer.feed(tone(1, 100))
+        self.audio._render(50)
+        self.audio.submit(tone(9, 100), priority=URGENT)
+        self.assertTrue((self.audio._render(100) == 9).all())
+        self.assertTrue(answer.cancelled)
+        self.assertFalse(answer.feed(tone(1, 100)), "late cloud chunks are refused")
+        self.assertTrue((self.audio._render(50) == 0).all(), "the answer never resumes")
+
+    def test_stop_spares_warnings(self):
+        warning = self.audio.submit(tone(9, 100), priority=URGENT)
+        answer = self.audio.submit(tone(1, 100), priority=ANSWER)
+        help_speech = self.audio.submit(tone(2, 100), priority=HELP)
+        self.audio.stop()
+        self.assertFalse(warning.cancelled)
+        self.assertTrue(answer.cancelled and help_speech.cancelled)
+
+    def test_open_stream_holds_the_lane_until_closed(self):
+        warning = self.audio.stream(URGENT)
+        self.audio.submit(tone(1, 100), priority=ANSWER)
+        self.assertTrue((self.audio._render(100) == 0).all())
+        warning.feed(tone(9, 50))
+        warning.close()
+        rendered = self.audio._render(150)
+        self.assertTrue((rendered[:50] == 9).all())
+        self.assertTrue((rendered[50:] == 1).all())
+
+    def test_cues_mix_over_speech(self):
+        self.audio.submit(tone(100, 100), priority=ANSWER)
+        done = self.audio.cue(tone(5, 50))
+        rendered = self.audio._render(100)
+        self.assertTrue((rendered[:50] == 105).all())
+        self.assertTrue((rendered[50:] == 100).all())
+        self.assertTrue(done.is_set())
+
+    def test_gain_scales_and_clips(self):
+        self.audio.gain = 2.0
+        self.audio.submit(tone(30000, 10))
+        self.assertTrue((self.audio._render(10) == 32767).all())
+
+    def test_other_rates_are_resampled(self):
+        playback = self.audio.stream(ANSWER)
+        playback.feed(tone(7, 16000), 16000)
+        playback.close()
+        self.assertEqual(sum(len(chunk) for chunk in playback.chunks), 22050)
 
 
 if __name__ == "__main__":

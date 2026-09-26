@@ -14,7 +14,9 @@ Status: voice code exists; historical test results are recorded in `../log.md`.
 2026-09-26 planning update: idle single tap repeats; a tap while thinking or
 speaking cancels without automatic repeat; hold to talk and release to send is
 also decided, along with double tap for local help/status. Locator sound is
-removed from scope by user decision; legacy code still needs removal. Audio hardware
+removed from scope by user decision and from the voice code. The §2 mapping,
+triple tap and the shared audio owner are implemented on `voice/on-integration`
+and unit-tested; Pi button timing is not yet validated. Audio hardware
 options remain open, with an open speaker likely for the demo and bone conduction
 the future product direction. Planned hazard behavior is not implemented merely
 because it appears in this spec.
@@ -61,11 +63,11 @@ documents should refer to this shared decision record.
 | --- | --- | --- |
 | Hold, then release | Record question, then send it with a camera image | DECIDED by user: hold to talk, release to send |
 | Single short press while idle | Repeat the last answer | DECIDED by user: repeat the last answer |
-| Tap while thinking/speaking | Invalidates answer and stops output; starts recording; short release can schedule repeat | DECIDED: cancel only, no automatic repeat; implementation fix required |
-| Double short press | Local help/status | DECIDED by user: local spoken help/status, no internet required and no contact action |
-| Another double tap | Legacy code starts locator within an armed window | Local help/status again; remove locator, arming state and locator prompts |
-| Triple short press | Not implemented | DECIDED by user: enter Guardian Voice (`guardian/specs.md` §2). Double-tap help waits up to one extra `DOUBLE_WINDOW` to rule out a third press; validate that delay |
-| Hazard detected | Intended automatic warning, no gesture | Automatic; no button activation needed |
+| Tap while thinking/speaking | Stops output and invalidates the answer; the release is consumed | DECIDED: cancel only, no automatic repeat. IMPLEMENTED |
+| Double short press | Local help/status on its own worker, after the tap window | DECIDED by user: local spoken help/status, no internet required and no contact action. IMPLEMENTED |
+| Another double tap | Local help/status again | Locator, arming state and locator prompts removed |
+| Triple short press | Guardian entry point; announces that Guardian isn't available yet | DECIDED by user: enter Guardian Voice (`guardian/specs.md` §2). Taps resolve `TAP_WINDOW` (0.5 s) after the last tap, so double-tap help waits for that window; validate the delay on hardware |
+| Hazard detected | Local tone + "Obstacle ahead." interrupts every state (hazard spec §7) | Automatic; no button activation needed |
 
 **DECIDED:** a single short press while idle repeats the last answer; it does
 not capture a new scene or ask Gemini again. With no previous answer, announce
@@ -76,8 +78,8 @@ ordinary playback without automatically repeating. Classify this tap by the
 state at press time: its release must not become an idle-repeat action.
 Invalidate late answer/audio output and consume that tap without dispatching
 a new question. Cancellation need not wait for an outstanding network request
-to finish. This needs an implementation fix; documentation is not proof it
-works. A later separate idle tap can repeat the last answer.
+to finish. Implemented and unit-tested; a hold while busy still asks a new
+question. A later separate idle tap can repeat the last answer.
 
 **DECIDED:** hold the button to record a spoken question, then release to send
 it with the camera image. This retains the existing push-to-talk interaction.
@@ -86,14 +88,14 @@ Timing thresholds remain implementation settings to validate on hardware.
 **DECIDED:** double tap opens local spoken help/status. This action must work
 without internet, must not wait behind a cloud request and contacts no one.
 Report only known device status; unknown battery or other unavailable telemetry
-remains unknown. The existing worker scheduling still needs integration work.
+remains unknown. Help runs on its own worker lane, separate from Gemini and
+from cloud speech, so it never waits behind them.
 
 **REMOVED FROM SCOPE:** locator sound. Every recognized double tap has the
 same help/status meaning; there is no arming window or special second action.
-Remove legacy locator state, activation, prompts and locator-specific tests
-when implementing this mapping. Retain general audio/tone helpers used by
-hazard warnings. A repeated help request should replace/coalesce pending status
-work, not build a queue. The user selected repeat over a fresh scene description
+Locator state, activation, prompts and tests are removed from the voice code.
+A repeated help request coalesces: a worker skips any task superseded before it
+starts, so pending status work never builds a queue. The user selected repeat over a fresh scene description
 for idle tap.
 Do not silently change controls when hardware or network fails.
 
@@ -376,7 +378,7 @@ fallback demo if the voice path fails on the day.
 | --- | --- |
 | Interactions API vs legacy `generateContent` | Decide at implementation; legacy is known-working |
 | Audio hardware | Exploring options; likely open speaker for demo, bone conduction for product after hackathon |
-| Button gesture mapping | Hold/release = ask; idle tap = repeat; thinking/speaking tap = cancel without repeat. Double tap = local help/status every time; locator removed. Mapping decided in §2; implementation/validation pending |
+| Button gesture mapping | Hold/release = ask; idle tap = repeat; thinking/speaking tap = cancel without repeat. Double tap = local help/status every time; triple tap = Guardian; locator removed. Implemented and unit-tested on `voice/on-integration`; Pi button timing TO BE VALIDATED |
 | Camera mounting/coverage | Required task before wearable hazard claims; hazard spec §4 |
 | Tactile hazard feedback | Desired alongside audio; patterns/hardware exploratory, implement audio first |
 | ElevenLabs latency over venue wifi | Unmeasured; local TTS fallback is mandatory regardless |

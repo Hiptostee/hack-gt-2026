@@ -9,14 +9,12 @@ Two front ends share this package:
 
 ## Voice companion
 
-Planning update: idle single tap repeats the last answer; thinking/speaking
-tap is decided as cancel without automatic repeat (code fix still needed).
-Hold to talk/release to send and double tap for local spoken help/status are
-also decided. Help needs no internet and contacts no one; cloud-worker scheduling
-still needs integration work. Locator sound is removed from scope; legacy code
-still needs removal. The approved button mapping is in
-[specs.md §2](specs.md#2-interaction-model); the commands/gestures below describe
-existing code. Audio hardware options remain exploratory: likely open speaker
+Button mapping (implemented, unit-tested; Pi timing not yet validated): hold to
+talk and release to send; one tap repeats the last answer; two taps give local
+spoken help/status; three taps are the Guardian entry point (Guardian itself is
+not built yet). A tap while thinking or speaking only cancels. Help needs no
+internet, contacts no one and runs on its own worker. The locator sound is
+removed. See [specs.md §2](specs.md#2-interaction-model). Audio hardware options remain exploratory: likely open speaker
 for the hackathon demo, bone conduction for the future product after it.
 Hazards should eventually use both audio and tactile feedback; implement local
 audio first and keep tactile patterns as brainstorming. Complete the camera
@@ -36,16 +34,18 @@ python3 -m companion.voice --image path/to.jpg     # dev machine, keyboard inste
 ```
 
 Without `--pin`, a keyboard stand-in replaces the button: Enter starts and ends a
-turn, `r` is a short press, `h` is a double press, `q` quits. Without `--ros`,
-`--image` supplies a static JPEG so the pipeline can be exercised off the robot.
+turn, `r` is a short press, `h` is a double press, `g` is a triple press, `q`
+quits. Without `--ros`, `--image` supplies a static JPEG so the pipeline can be
+exercised off the robot.
 
-Hold the button to talk and release to send. A short press repeats the last
-answer, a press during playback interrupts it, and a double press opens help.
-**Legacy behavior pending removal:** a second double press can still start the
-locator sound; the approved plan removes this feature and makes every double
-tap report help/status. Cancel-on-release also still needs its planned fix.
-Help uses the
-local speech engine so it still works with no network.
+Taps resolve half a second after the last one, so help starts after that pause.
+Help uses the local speech engine so it still works with no network.
+
+All sound goes through one output owner in `voice/audio.py`: hazard warnings,
+then help, then ordinary answers, with earcons mixed on top. A hazard warning
+("Obstacle ahead.", rendered locally at startup) cuts off anything less
+urgent in any state, and the cut-off speech never resumes. Button presses do
+not silence a warning.
 
 With `--ros`, the camera is shared with the independent YOLO and mapping nodes.
 Ask for a scene description while YOLO keeps tracking the black backpack. Saying

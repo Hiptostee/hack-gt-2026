@@ -3,16 +3,26 @@
 The local engine must work before ElevenLabs is trusted. It is what every
 network failure falls back to, and a silent device is indistinguishable from a
 dead one.
+
+Both engines play through the audio owner. Local speech is rendered to PCM
+first, so nothing else ever opens the output device.
 """
 import json
+import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
 import sys
+import tempfile
+import wave
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+from companion.voice.audio import ANSWER, resample
 
 try:
     import numpy as np
@@ -27,6 +37,7 @@ OUTPUT_FORMAT = "pcm_22050"
 # the device talking instead of dropping to the robotic local engine.
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"
 DEFAULT_SPEED = 1.15
+RENDER_TIMEOUT = 15
 
 
 class Speech:
@@ -35,8 +46,8 @@ class Speech:
         self.key = key
         self.voice_id = voice_id
         self.model_id = model_id
-        self.speed = speed if speed is not None else float(os.environ.get("COMPANION_SPEECH_SPEED", str(DEFAULT_SPEED)))
-        self.process = None
+        self.speed = speed if speed is not None else float(
+            os.environ.get("COMPANION_SPEECH_SPEED", str(DEFAULT_SPEED)))
         self.cloud_ok = bool(key)
         self.on_first_audio = None  # Called when the first PCM chunk arrives.
         if self.key and not self.voice_id:
@@ -63,16 +74,20 @@ class Speech:
               "Set ELEVENLABS_VOICE_ID to choose another.", file=sys.stderr)
         return DEFAULT_VOICE
 
-    def say(self, text, local=False):
+    def say(self, text, local=False, priority=ANSWER):
         """local=True forces the offline engine, for anything that must work
-        without a network — status reports and help, above all."""
+        without a network — status reports and help, above all. Returns False
+        if the speech was cut off."""
         if not text.strip():
-            return
-        if not local and self.key and self.voice_id and self._say_cloud(text):
-            return
-        self._say_local(text)
+            return True
+        if not local and self.key and self.voice_id:
+            played = self._say_cloud(text, priority)
+            if played is not None:
+                return played
+        return self._say_local(text, priority)
 
-    def _say_cloud(self, text):
+    def _say_cloud(self, text, priority):
+        """None means no audio was produced, so the caller falls back to local."""
         url = (API + "/text-to-speech/" + self.voice_id + "/stream?"
                + urlencode({"output_format": OUTPUT_FORMAT}))
         payload = {
@@ -86,17 +101,28 @@ class Speech:
         }
         request = Request(url, data=json.dumps(payload).encode(),
                           headers={"xi-api-key": self.key, "Content-Type": "application/json"})
+        playback = None
+        fed = False
         try:
             with urlopen(request, timeout=20) as response:
                 self.cloud_ok = True
-                return self.audio.play_stream(self._chunks(response), PCM_RATE)
+                playback = self.audio.stream(priority)
+                for chunk in self._chunks(response):
+                    if not playback.feed(chunk, PCM_RATE):
+                        break  # Cancelled: stop reading, drop the rest.
+                    fed = True
         except HTTPError as error:
             detail = error.read()[:300].decode("utf-8", "replace")
             print(f"ElevenLabs {error.code}: {detail}", file=sys.stderr)
-        except (URLError, TimeoutError, socket.timeout) as error:
+        except (URLError, TimeoutError, socket.timeout, OSError) as error:
             print(f"ElevenLabs unreachable: {error}", file=sys.stderr)
+        finally:
+            if playback is not None:
+                playback.close()
+        if playback is not None and (fed or playback.cancelled):
+            return playback.wait()
         self.cloud_ok = False
-        return False
+        return None
 
     def _chunks(self, response):
         remainder = b""
@@ -118,32 +144,58 @@ class Speech:
             if np is not None:
                 yield np.frombuffer(block[:usable], dtype="<i2")
 
-    def _say_local(self, text):
-        self.stop()
-        speed_factor = self.speed
+    def _say_local(self, text, priority):
+        # Sentence by sentence: the first plays while the rest render, so a long
+        # status report does not wait for the whole thing to synthesize.
+        playback = self.audio.stream(priority)
+        spoke = False
+        try:
+            for sentence in re.split(r"(?<=[.!?])\s+", text.strip()):
+                samples = self.render_local(sentence)
+                if samples is None:
+                    break
+                if not playback.feed(samples):
+                    break
+                spoke = True
+        finally:
+            playback.close()
+        if not spoke and not playback.cancelled:
+            self.audio.earcon("error")
+            return False
+        return playback.wait()
+
+    def render_local(self, text):
+        """Offline engine to int16 PCM at the owner's rate, or None."""
         if platform.system() == "Darwin":
-            wpm = str(int(175 * speed_factor))
-            command = ["say", "-r", wpm, text]
+            wpm = str(int(175 * self.speed))
+            command = ["say", "-r", wpm, "--data-format=LEI16@22050", "-o"]
         elif shutil.which("espeak-ng"):
-            wpm = str(int(170 * speed_factor))
-            command = ["espeak-ng", "-s", wpm, text]
+            command = ["espeak-ng", "-s", str(int(170 * self.speed)), "--stdin", "-w"]
         elif shutil.which("espeak"):
-            wpm = str(int(170 * speed_factor))
-            command = ["espeak", "-s", wpm, text]
+            command = ["espeak", "-s", str(int(170 * self.speed)), "--stdin", "-w"]
         else:
             print("No local speech engine. Install espeak-ng.", file=sys.stderr)
-            self.audio.earcon("error")
-            return
-        try:
-            self.process = subprocess.Popen(command, stdout=subprocess.DEVNULL,
-                                            stderr=subprocess.DEVNULL)
-            self.process.wait()
-        except OSError as error:
-            print(f"Local speech failed: {error}", file=sys.stderr)
-            self.audio.earcon("error")
+            return None
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "speech.wav"
+            try:
+                # Text goes on stdin so a leading "-" is never read as an option.
+                subprocess.run(command + [str(path)], input=text.encode(), check=True,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=RENDER_TIMEOUT)
+                with wave.open(str(path), "rb") as handle:
+                    rate = handle.getframerate()
+                    channels = handle.getnchannels()
+                    if handle.getsampwidth() != 2:
+                        raise ValueError("expected 16-bit audio")
+                    frames = handle.readframes(handle.getnframes())
+            except (OSError, subprocess.SubprocessError, ValueError, wave.Error) as error:
+                print(f"Local speech failed: {error!r}", file=sys.stderr)
+                return None
+        samples = np.frombuffer(frames, dtype="<i2")
+        if channels > 1:
+            samples = samples[::channels]
+        return resample(samples, rate, self.audio.output_rate)
 
     def stop(self):
         self.audio.stop()
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-        self.process = None

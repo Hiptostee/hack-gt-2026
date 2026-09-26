@@ -161,16 +161,17 @@ tactile-only demo or a different button mapping.
   exists, announce that there is nothing to repeat yet.
 - **DECIDED WITH THE USER:** a tap while thinking or speaking cancels the
   response without automatically repeating. Release must not trigger idle
-  repeat; late response/audio output must stay canceled. This requires a code
-  fix and has not been implemented by this documentation update.
+  repeat; late response/audio output must stay canceled. IMPLEMENTED on
+  `voice/on-integration` (unit-tested; Pi button TO BE VALIDATED).
 - **DECIDED WITH THE USER:** hold to record a question, release to send it
   with the camera image; retain the existing push-to-talk interaction.
 - **DECIDED WITH THE USER:** double tap opens local spoken help/status,
   without internet and without contacting anyone. It must not wait behind a
-  cloud request; that scheduling behavior still needs integration work.
-- **REMOVED FROM SCOPE:** locator sound. Another double tap remains help/status;
-  remove the legacy arming window, sound activation and locator prompts. This
-  cleanup is planned, not performed by the documentation update.
+  cloud request: help now runs on its own worker (IMPLEMENTED on
+  `voice/on-integration`).
+- **REMOVED FROM SCOPE:** locator sound. Another double tap remains help/status.
+  Removed from the voice device code on `voice/on-integration`; the browser
+  fallback in `companion/static/` still has its locator buttons.
 - **DECIDED WITH THE USER:** triple tap, or a spoken request returned by Gemini
   as `device_action: "guardian"`, enters Guardian Voice after a 2 s
   tap-to-cancel window. Inside Guardian: hold = talk to the agent, tap = stop
@@ -188,9 +189,9 @@ tactile-only demo or a different button mapping.
 | Direction and pose stabilization | Direction, valid-visual-odometry and stable-odometry nodes | INTEGRATED on `integeration`; direction gated by `/backpack/guidance_active` |
 | Voice → navigation | `integeration`: `navigate_backpack` / `stop_navigation` actions, `RosGuidance`, Pi bridge | IMPLEMENTED ON INTEGRATION BRANCH; end-to-end walk TO BE VALIDATED |
 | Voice companion | `feature/voice-companion`: Gemini, ElevenLabs/local speech, button state machine | IMPLEMENTED; integration branch carries an older copy (see §1a). Current demo uses laptop browser audio; Pi button/mic/speaker demonstration TO BE VALIDATED |
-| Hazard interruption | `/hazard_warning` subscriber and companion `_hazard()` on `feature/voice-companion` | PARTIAL: acts only in busy state; missing from integration branch; no detector publishes the topic |
+| Hazard interruption | `voice/on-integration`: one persistent audio owner (`voice/audio.py`), prioritized speech, resident "Obstacle ahead." phrase (`voice/hazards.py`), `_hazard()` for every state | IMPLEMENTED (hazard milestone 2): unit-tested and checked on a Mac speaker; payload still ignored (milestone 1); no detector publishes the topic; Pi onset timing TO BE VALIDATED |
 | Tactile transport/firmware | `tactileESP32`: C++ sender, protocol, hotspot scripts, SG90 firmware, PlatformIO build/flash | IMPLEMENTED ON BRANCH; not merged into `integeration`; log records host builds/tests, not flashed hardware |
-| Local help | Voice status and last landmark; legacy locator code remains pending removal | PARTIAL: scheduling can delay help behind cloud work; locator excluded from product scope |
+| Local help | `status_text()` status and last landmark on its own worker; locator removed from voice code | IMPLEMENTED on `voice/on-integration`; offline Pi run TO BE VALIDATED |
 | Phone/browser help fallback | Confirmed call/SMS/share handoffs in `companion/static/` | IMPLEMENTED FALLBACK; phone/platform validation pending; not standalone Pi dispatch |
 | Persistent remember-this | No object-memory pipeline found | TO BE IMPLEMENTED; STRETCH |
 
@@ -383,9 +384,9 @@ help/status is also decided: it requires no internet and contacts no one.
 Locator sound is removed from scope; every double tap keeps the same help/status
 meaning. A long hold cannot also activate help while assigned to push-to-talk.
 
-Local status code exists, alongside legacy locator code. **TO BE IMPLEMENTED:**
-remove locator arming/activation/prompts and make help independent of pending
-Gemini work. **TO BE VALIDATED:** offline operation, physical gestures, repeated
+Local status is implemented on `voice/on-integration`: locator removed from the
+voice code, help on its own worker so it never waits behind Gemini, stale help
+requests skipped. **TO BE VALIDATED:** offline operation, physical gestures, repeated
 help requests and cancellation without automatic repeat. Battery may be unknown; last landmark must
 retain its observation time and must not imply current location.
 

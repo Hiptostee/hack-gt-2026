@@ -44,7 +44,10 @@ Set device_action to navigate_backpack when the user asks to go to, find, or be
 guided to the backpack. Set it to stop_navigation when they ask to stop guidance.
 These actions only request the local navigation system; never invent a route or
 claim guidance has started. For repeat, louder, quieter, stop, help, and
-save_landmark, use the matching action. Otherwise use none.
+save_landmark, use the matching action. Set it to guardian when the user asks
+for guardian mode, or says they are lost or disoriented and want someone to talk
+it through with; a plain request for help or device status is help.
+Otherwise use none.
 You cannot contact anyone, place calls, or activate emergency actions.
 """
 
@@ -58,7 +61,7 @@ SCHEMA = {
         "device_action": {
             "type": "STRING",
             "enum": ["none", "repeat", "louder", "quieter", "stop", "help", "save_landmark",
-                     "navigate_backpack", "stop_navigation"],
+                     "navigate_backpack", "stop_navigation", "guardian"],
         },
     },
 }

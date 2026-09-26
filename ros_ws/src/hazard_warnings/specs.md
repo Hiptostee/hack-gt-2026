@@ -412,7 +412,7 @@ ranges and depend on hardware access; Stage C is not assumed to fit the event.
 | --- | --- | --- | --- |
 | 0 | Calibration and baseline captures; `hazard_warnings/config/hazards.yaml`; coverage record | Know observable body volume, stream units, mount pose and baseline load | 1–2 h |
 | 1 | JSON contract fixtures; `companion/voice/hazards.py`; pass payload through `ros_camera.py` and `voice/camera.py` | Injected warnings spoken offline in every state; malformed/stale messages rejected | 2–3 h |
-| 2 | Audio ownership in `voice/audio.py`, `speech.py`, `__main__.py`; phrase bank | Delayed cloud chunks cannot resume/mask warning; recording and help interruption pass | 3–5 h |
+| 2 | Audio ownership in `voice/audio.py`, `speech.py`, `__main__.py`; phrase bank | Delayed cloud chunks cannot resume/mask warning; recording and help interruption pass. **Passed in unit tests and on a Mac speaker (`voice/on-integration`); Pi onset timing not yet measured.** | 3–5 h |
 | 3 | `hazard_warnings/CMakeLists.txt`, `package.xml`, `src/hazard_warnings_node.cpp`, `include/hazard_warnings/geometry.hpp`, `policy.hpp` | Measured shelf/panel/branch-like fixtures produce generic warnings | 3–5 h |
 | 4 | Launch/config install; `realsense_mapper/launch/mapping.launch.py`; health and navigation inhibit integration | Concurrent system meets Stage A latency/fault criteria | 2–4 h |
 | 5 | Refactor `backpack_detector_node.cpp` and shared decoding as needed; `/perception/detections`; optional custom weights | Supported labels work without changing generic-alert timing or breaking backpack output | 2–4 h for existing classes; custom data/training separate |
@@ -486,7 +486,8 @@ default to timing/counts without audio, images or transcripts.
 Before the supervised audio demo, complete COVERAGE-01, measure body dimensions,
 select/test the exploratory demo speaker and determine allowed approach speed
 from measured range/latency. The button mapping is decided in the companion
-spec; its cancel/help fixes and legacy locator removal remain implementation work.
+spec; its cancel/help fixes and locator removal are implemented on
+`voice/on-integration`, with Pi button validation still pending.
 Independent fault signaling and tactile hazard patterns are later work before
 unsupervised wearable claims; bone conduction remains a post-hackathon direction.
 Stage B also

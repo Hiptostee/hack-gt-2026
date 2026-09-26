@@ -10,11 +10,11 @@ integration work. Audio hardware options are being explored: likely an open
 speaker for the hackathon demo, bone conduction for the product after it.
 The hazard-feedback target includes audio and tactile output; local audio comes
 first and tactile patterns remain brainstorming. Idle single tap repeats the
-last answer; thinking/speaking tap is planned to cancel without automatic repeat.
-Hold to talk/release to send and double tap for local spoken help/status are
-also decided. Help needs no internet and contacts no one; cloud-worker scheduling
-still needs integration work. Locator sound is removed from scope; legacy code
-still needs removal. The approved button mapping is in [companion/specs.md §2](companion/specs.md#2-interaction-model).
+last answer; a thinking/speaking tap cancels without automatic repeat; hold to
+talk/release to send; double tap gives local spoken help/status (no internet,
+contacts no one); triple tap is the Guardian entry point. Implemented and
+unit-tested on `voice/on-integration`; Pi button timing not yet validated. The
+locator sound is removed. The button mapping is in [companion/specs.md §2](companion/specs.md#2-interaction-model).
 The worn-camera coverage survey is a required task before capability claims.
 
 The stack includes:

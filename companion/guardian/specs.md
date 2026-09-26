@@ -59,10 +59,10 @@ The 3-second hold from the first draft is **dropped**: an ordinary question can
 last longer than 3 s, and a threshold tone must fire while the button is still
 held, which a release handler cannot do.
 
-Triple tap is classified by extending the existing short-press chain: a second
-short press within `DOUBLE_WINDOW` no longer dispatches help immediately; it
-waits one more window for a third press. This adds up to `DOUBLE_WINDOW`
-(0.5 s) of delay to double-tap help. **Validate** that this delay is acceptable;
+Triple tap is classified by the short-press chain: taps are counted and the
+chain resolves `TAP_WINDOW` (0.5 s) after the last one — one tap repeats, two
+open help, three or more open Guardian. This adds 0.5 s of delay to
+double-tap help. **Validate** that this delay is acceptable;
 if not, shorten the window rather than dropping triple tap.
 
 ### Cancel window instead of "say yes" — DECIDED
@@ -479,8 +479,8 @@ conversational latency.
 | Step | Work | Evidence before continuing |
 | --- | --- | --- |
 | 0 | Spike: dashboard agent via web widget; confirm key has Agents permission; one Twilio SMS by curl to a verified number | All three work by hand. **Agent configured and key verified; laptop smoke test and Twilio pending.** |
-| 1 | Extract `status_text()`; remove locator code; add triple-tap chain, `guardian` device action, `g` dev key | Double tap and triple tap classified correctly in tests |
-| 2 | Shared audio owner (hazard milestone 2) | Hazard preempts fake Guardian playback; late chunks dropped |
+| 1 | Extract `status_text()`; remove locator code; add triple-tap chain, `guardian` device action, `g` dev key | Double tap and triple tap classified correctly in tests. **Done on `voice/on-integration`; triple tap currently announces that Guardian isn't available yet.** |
+| 2 | Shared audio owner (hazard milestone 2) | Hazard preempts fake Guardian playback; late chunks dropped. **Done: `Audio.stream(priority)` is the producer API Guardian will use; the owner's tests cover preemption and late chunks.** |
 | 3 | `GuardianController` + custom `AudioInterface`, `get_status`, `end_call`, push-to-talk, double-tap exit | Real conversation on the Pi; exit and offline fallback work |
 | 4 | `describe_scene` | Freshness, deadline, late-result discard |
 | 5 | `SmsGate` with a fake sender | Criterion 7 passes in tests |

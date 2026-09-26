@@ -33,6 +33,7 @@ Dev controls (no GPIO):
   Enter   start talking, Enter again to send
   r       short press (repeat last answer)
   h       double press (help mode)
+  g       triple press (guardian mode)
   q       quit
 """
 
@@ -56,8 +57,8 @@ Dev controls (no GPIO):
             if key == "r":
                 self.events.put(("press", now))
                 self.events.put(("release", now + 0.3))
-            elif key == "h":
-                for _ in range(2):
+            elif key in ("h", "g"):
+                for _ in range(2 if key == "h" else 3):
                     self.events.put(("press", now))
                     self.events.put(("release", now + 0.3))
             elif key == "":
