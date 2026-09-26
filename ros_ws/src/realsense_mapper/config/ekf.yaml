@@ -12,13 +12,13 @@ ekf_filter_node:
     base_link_frame: camera_link
     world_frame: odom
 
-    # RTAB-Map RGB-D odometry supplies a full 6-DoF pose and twist. The EKF's
-    # constant-velocity process model continues predicting during brief gaps.
-    odom0: /visual_odom
+    # RGB-D tracking supplies 6-DoF pose. Its finite-difference twist becomes
+    # unreliable around dropped frames, so do not fuse it into the EKF.
+    odom0: /visual_odom_valid
     odom0_config: [true, true, true,
                    true, true, true,
-                   true, true, true,
-                   true, true, true,
+                   false, false, false,
+                   false, false, false,
                    false, false, false]
     odom0_differential: false
     odom0_relative: false

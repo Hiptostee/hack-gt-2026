@@ -12,16 +12,14 @@ from launch.substitutions import LaunchConfiguration
 def generate_launch_description():
     package_share = get_package_share_directory("realsense_mapper")
     return LaunchDescription([
-        DeclareLaunchArgument("localization_backend", default_value="openvins"),
-        DeclareLaunchArgument("enable_imu", default_value="true"),
+        DeclareLaunchArgument("enable_loop_closure", default_value="true"),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(package_share, "launch", "mapping.launch.py")
             ),
             launch_arguments={
                 "camera_source": "realsense",
-                "localization_backend": LaunchConfiguration("localization_backend"),
-                "enable_imu": LaunchConfiguration("enable_imu"),
+                "enable_loop_closure": LaunchConfiguration("enable_loop_closure"),
             }.items(),
         )
     ])

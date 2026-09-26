@@ -1,9 +1,7 @@
 # Keep exposure settings identical to realsense_motion.yaml. Selected only
 # for enable_icp:=true. Native cloud generation crashed on ARM; XYZ clouds
 # are instead projected from depth images by rtabmap_util/point_cloud_xyz.
-rgb_camera.enable_auto_exposure: false
-rgb_camera.exposure: 280
-rgb_camera.gain: 128
+rgb_camera.enable_auto_exposure: true
 depth_module.enable_auto_exposure: false
 depth_module.exposure: 4000
 depth_module.gain: 16

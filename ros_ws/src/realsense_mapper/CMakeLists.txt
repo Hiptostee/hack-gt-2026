@@ -29,9 +29,13 @@ add_executable(mpu6050_node src/mpu6050_node.cpp)
 target_compile_features(mpu6050_node PUBLIC cxx_std_17)
 ament_target_dependencies(mpu6050_node rclcpp sensor_msgs)
 
-add_executable(openvins_odom_bridge_node src/openvins_odom_bridge_node.cpp)
-target_compile_features(openvins_odom_bridge_node PUBLIC cxx_std_17)
-ament_target_dependencies(openvins_odom_bridge_node
+add_executable(valid_visual_odom_node src/valid_visual_odom_node.cpp)
+target_compile_features(valid_visual_odom_node PUBLIC cxx_std_17)
+ament_target_dependencies(valid_visual_odom_node rclcpp nav_msgs tf2 tf2_geometry_msgs)
+
+add_executable(stable_odometry_node src/stable_odometry_node.cpp)
+target_compile_features(stable_odometry_node PUBLIC cxx_std_17)
+ament_target_dependencies(stable_odometry_node
   rclcpp nav_msgs geometry_msgs tf2 tf2_ros tf2_geometry_msgs)
 
 add_executable(backpack_detector_node src/backpack_detector_node.cpp)
@@ -47,10 +51,13 @@ ament_target_dependencies(backpack_path_planner_node
   rclcpp sensor_msgs nav_msgs std_msgs geometry_msgs tf2 tf2_ros tf2_geometry_msgs)
 target_link_libraries(backpack_path_planner_node ${OpenCV_LIBRARIES})
 
+add_executable(backpack_direction_node src/backpack_direction_node.cpp)
+target_compile_features(backpack_direction_node PUBLIC cxx_std_17)
+ament_target_dependencies(backpack_direction_node rclcpp nav_msgs std_msgs tf2 tf2_geometry_msgs)
+
 install(TARGETS mapping_status_node rgbd_tcp_receiver_node mpu6050_node backpack_detector_node
-  backpack_path_planner_node openvins_odom_bridge_node
+  backpack_path_planner_node backpack_direction_node valid_visual_odom_node stable_odometry_node
   DESTINATION lib/${PROJECT_NAME})
-install(PROGRAMS scripts/generate_openvins_config.py DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 

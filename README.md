@@ -7,23 +7,22 @@ natively on Ubuntu 24.04 or a Raspberry Pi.
 The stack includes:
 
 - Intel RealSense D415 driver
-- OpenVINS visual-inertial odometry on the D415 color stream and external MPU6050
-- RTAB-Map RGB-D mapping and loop closure using the D415 depth stream
+- RTAB-Map RGB-D visual odometry and SLAM (C++)
 - accumulated colored point cloud on `/rtabmap/cloud_map`
 - 2D occupancy grid on `/rtabmap/map`
 - YOLOX black-backpack detection on `/yolo/annotated_image`
 - heading-aware A* route to a detected backpack on `/backpack/path`
-- legacy RGB-D/ICP/EKF localization available as a fallback
+- 60 Hz EKF stabilization between visual odometry updates
 - RViz inside an XFCE desktop served by TigerVNC and noVNC
 - a small C++ status node that verifies both map outputs are arriving
 
-## Localization and mapping
+## Why RTAB-Map
 
-On the Pi, OpenVINS estimates motion from D415 color frames and the external
-MPU6050. RTAB-Map consumes that odometry plus the existing aligned RGB-D streams
-for loop closure, 3D cloud assembly and the 2D occupancy grid. The D415 and its
-camera settings are unchanged. The older RGB-D/ICP odometry path remains
-available with `localization_backend:=rgbd` for comparison.
+RTAB-Map is the standard ROS 2 RGB-D SLAM choice for this sensor. It performs
+visual odometry, loop closure, graph optimization, 3D cloud assembly, and 2D
+occupancy-grid generation in one maintained ROS package. The wearable camera
+uses 6-DoF visual odometry. The D415 has no IMU, so the camera should still
+begin approximately level for a useful 2D occupancy grid.
 
 ## Quick start
 
@@ -85,10 +84,7 @@ From a clone of this repository, run:
 ```bash
 ./scripts/setup-native-ubuntu.sh
 source ros_ws/install/setup.bash
-ros2 launch realsense_mapper hardware.launch.py \
-  camera_profile:=640x480x15 openvins_calibration:=true enable_backpack_stack:=false
-ros2 launch realsense_mapper hardware.launch.py \
-  camera_profile:=640x480x15 enable_backpack_stack:=false
+ros2 launch realsense_mapper hardware.launch.py
 ```
 
 To isolate camera, odometry, and SLAM performance on the Pi without running
@@ -98,73 +94,95 @@ YOLO detection or backpack path planning, launch with:
 ros2 launch realsense_mapper hardware.launch.py enable_backpack_stack:=false
 ```
 
-On compute-constrained Pi deployments, use synchronized 15 FPS streams:
+On compute-constrained Pi deployments, request synchronized 15 FPS streams so
+the camera does not produce frames faster than the mapping stack can consume:
 
 ```bash
 ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
+  odom_image_decimation:=2 \
   enable_backpack_stack:=false
 ```
 
-The OpenVINS hardware launch expects the MPU6050 at I2C address `0x68`. The
-mounting estimate assumes IMU X points up, Y left, Z backward, and the board
-is 4 cm left of the camera center. Grant I2C access once and log out and back in:
+An MPU6050 at I2C address `0x68` can stabilize short-term rotation. The
+configured mounting transform assumes IMU X points up, Y points left, Z points
+backward, and the board is 4 cm left of `camera_link`. Install the
+filter and grant the login user access to I2C once, then log out and back in:
 
 ```bash
-sudo apt install -y i2c-tools
+sudo apt install -y i2c-tools ros-jazzy-imu-filter-madgwick
 sudo usermod -aG i2c "$USER"
 ```
 
-Install OpenVINS in the workspace if you installed this project before the
-pivot (the current native setup script does this automatically):
+For the current RGB-D localization path on the Pi, launch with:
 
 ```bash
-cd ~/hack-gt-2026/ros_ws
-sudo apt install -y libeigen3-dev libboost-all-dev libceres-dev
-git clone --depth 1 https://github.com/nathanshankar/open_vins.git src/open_vins
 source /opt/ros/jazzy/setup.bash
-rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
-colcon build --symlink-install --packages-up-to ov_msckf realsense_mapper \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release -DENABLE_ARUCO_TAGS=OFF
-source install/setup.bash
-```
-
-First capture the D415's own color-camera intrinsics. This camera-only launch
-exits after writing `~/.ros/openvins_d415/`:
-
-```bash
+source ~/hack-gt-2026/ros_ws/install/setup.bash
+export ROS_DOMAIN_ID=42
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+export ZENOH_ROUTER_CHECK_ATTEMPTS=30
 ros2 launch realsense_mapper hardware.launch.py \
-  camera_profile:=640x480x15 openvins_calibration:=true enable_backpack_stack:=false
+  camera_profile:=640x480x15 \
+  odom_image_decimation:=2 \
+  enable_backpack_stack:=false \
+  enable_imu:=false \
+  enable_icp:=false \
+  enable_loop_closure:=true
 ```
 
-If an update only changes the estimator template, refresh that file without
-re-capturing camera intrinsics or replacing the camera–IMU calibration:
+Keep one Zenoh router running in another Pi terminal (`ros2 run rmw_zenoh_cpp
+rmw_zenohd`). To include YOLO and backpack routing in the same launch, set
+`enable_backpack_stack:=true`.
 
-```bash
-cp src/realsense_mapper/config/openvins/estimator_config.yaml \
-  ~/.ros/openvins_d415/estimator_config.yaml
-```
+The RGB-D tracker sometimes emits an invalid zero pose when it loses a frame.
+The `valid_visual_odom` node removes those messages and limits sudden position
+and orientation changes. `stable_odometry` then publishes a speed-limited pose
+and TF at 60 Hz for mapping. The raw `/visual_odom` topic remains available for
+diagnosis, and the planner watches `/visual_odom_valid` for tracking freshness.
+The external MPU6050 is optional; the current non-ICP path does not fuse it.
 
-Then restart for mapping, holding still through gyro calibration and
-OpenVINS initialization:
+ICP is optional. Enable it only when the depth view contains enough varied
+geometry to initialize scan matching. On the Pi test, a mostly flat depth scene
+repeatedly gave `Scan complexity too low`, so RGB-D tracking was more reliable.
+Mapping limits image/odometry timestamp separation to 40 ms.
 
-```bash
-ros2 launch realsense_mapper hardware.launch.py \
-  camera_profile:=640x480x15 enable_backpack_stack:=false \
-  2>&1 | tee /tmp/slam-quality.log
-```
+The Pi hardware launch enables RTAB-Map loop closures. Graph corrections may
+move the map frame when a loop is recognized; the local `odom -> camera_link`
+pose remains speed-limited. Use `enable_loop_closure:=false` for a short local
+mapping run if map-frame corrections are distracting. Disabling closures
+allows long-term map drift.
 
-Check `ros2 topic hz /ov_msckf/poseimu`, `ros2 topic hz /odometry/filtered`,
-and `ros2 topic hz /rtabmap/map` from a second terminal. OpenVINS publishes no
-pose until visual-inertial initialization; keep the rig still at first, then
-move gently while viewing textured, static objects. The bridge stops forwarding
-IMU-only propagation if camera updates are stale. The generated camera–IMU
-extrinsics and IMU noise are **starting estimates**, not a true Kalibr
-calibration. An external MPU6050 is not hardware synchronized to the D415;
-precise camera–IMU calibration, time alignment and measured IMU noise remain
-necessary for trustworthy metric SLAM. Re-capture camera info if you change
-the camera resolution. OpenVINS VIO is local odometry, not loop closure; RTAB-Map
-still handles mapping and loop closures.
+ICP uses 5 cm voxels, a bounded 8,000-point local map, and a 20% minimum
+correspondence ratio. These are starting settings, not hardware-verified accuracy
+guarantees. If ICP processing consistently exceeds the 67 ms frame interval at
+15 FPS or delay keeps growing, add `icp_voxel_size:=0.08` to reduce load. Use
+`odom_image_decimation:=1` when the Pi can process enough visual features at
+that resolution.
+
+Native RealSense cloud generation is disabled, including `pointcloud__neon_`
+on ARM, because enabling it caused a camera-process segmentation fault on the
+Pi. `rtabmap_util/point_cloud_xyz` projects aligned depth with color intrinsics,
+decimating by four in each dimension before publishing XYZ to `/icp/points`.
+Install `ros-jazzy-rtabmap-util` if upgrading an existing installation.
+Verify `ros2 topic info /icp/points` reports one publisher and
+`ros2 topic hz /icp_odom` receives messages before evaluating mapping quality.
+A topic listed only because ICP subscribes to it is not proof of cloud output.
+
+ICP predicts motion from its last successful registration and resets its local
+scan map after five consecutive failures. A reset is recovery from lost tracking,
+not a guarantee that the trajectory stayed accurate; repeated resets mean the
+depth geometry or registration still needs attention. An EKF cannot recover
+translation from the IMU alone while both odometry sources are lost. Start level
+and keep the rig still during gyro calibration so the relative IMU reference
+matches the initial odometry reference.
+
+For a repeatable check, hold still for 10 seconds after calibration, move slowly
+one metre and back, then turn slowly while viewing furniture or a room corner.
+Save the launch output with `2>&1 | tee /tmp/slam-quality.log` and inspect
+`ros2 topic hz /icp_odom` in a terminal with the same ROS/Zenoh environment.
+Compare drift, repeated surfaces, ICP correspondence ratios and processing
+delays against the previous run; a screenshot alone cannot validate accuracy.
 
 The hardware launch file starts the D415 directly over USB. The installer adds
 ROS 2 Jazzy, installs package dependencies with `rosdep`,
@@ -207,7 +225,10 @@ export ZENOH_ROUTER_CHECK_ATTEMPTS=30
 unset ZENOH_CONFIG_OVERRIDE
 ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
-  enable_backpack_stack:=false
+  odom_image_decimation:=1 \
+  enable_backpack_stack:=false \
+  enable_imu:=true \
+  enable_icp:=true
 ```
 
 Find the Pi's numeric LAN address with `hostname -I`. Keep the Mac and Pi on
@@ -248,11 +269,11 @@ not universal calibration: use `realsense-viewer` in the actual operating
 environment and increase exposure only when the image is too dark to retain
 features. The macOS bridge applies the same profile and exposure settings.
 
-Visual odometry is published on `/visual_odom`. `robot_localization` consumes it
-and maintains `/odometry/filtered` plus `odom -> camera_link` using its
-constant-velocity prediction model. RTAB-Map consumes the filtered odometry.
-The filter smooths very short dropouts; it is not a substitute for an IMU and
-its prediction will drift.
+Raw visual odometry is published on `/visual_odom`; valid visual poses are
+published on `/visual_odom_valid`. In non-ICP mode, `stable_odometry` publishes
+`/odometry/filtered` and `odom -> camera_link` at 60 Hz, moving toward the most
+recent valid pose at bounded speed. RTAB-Map consumes that stabilized odometry.
+When visual tracking is lost, the pose holds until valid frames return.
 
 RViz is preconfigured for:
 
@@ -268,13 +289,24 @@ while retaining A* obstacle avoidance. The map route is published as
 `/backpack/path`; the camera overlay is `/backpack/planner_image`, and the
 detected 3D target is `/backpack/goal`.
 
+With the backpack stack enabled, `/backpack/direction` publishes a single
+`std_msgs/UInt8` code at 5 Hz: `0` forward, `1` left, `2` right, `3` rotate
+left, `4` rotate right. Rotation commands start when the route heading differs
+from the wearer's yaw by about 60 degrees; smaller corrections use `1` or `2`.
+It compares the wearer's heading with a point 0.55 m along the A* route, with
+hysteresis to reduce flicker. It publishes no code when the path or tracking
+status is stale, the path is invalid, or the wearer has reached the route endpoint.
+For a demo, view the codes with `ros2 topic echo /backpack/direction`. An ESP32
+receiver should stop acting when codes stop arriving.
+
 The A* cost also prefers 0.55 m of obstacle clearance, and its raw grid result
 is reduced to collision-checked line-of-sight segments. Backpack positions are
-low-pass filtered to prevent route flicker. For early mapping tests, unknown
-cells are currently traversable; this is unsafe for real guidance and must be
-disabled (`allow_unknown: false`) before any field use.
+remembered and smoothed in the local odometry frame, then projected into the
+current map on each replan so loop closures update the route. For early mapping
+tests, unknown cells are currently traversable; this is unsafe for real
+guidance and must be disabled (`allow_unknown: false`) before any field use.
 
-For guidance safety, the planner accepts EKF prediction for at most 0.35 s
+For guidance safety, the planner accepts a brief tracking gap of at most 0.75 s
 after the last real visual-odometry message. It then clears the route, publishes
 `false` on `/backpack/path_valid`, and overlays `TRACKING LOST - STOP` on the
 camera. Any future haptic controller must require `/backpack/path_valid == true`
@@ -283,7 +315,8 @@ certified mobility aid and must not be the user's only navigation safeguard.
 
 ## Black-backpack detector
 
-The C++ detector runs the OpenCV Zoo YOLOX COCO model at a capped 4 FPS. It
+The C++ detector runs the OpenCV Zoo YOLOX COCO model at most once every two
+seconds after each inference finishes, using two OpenCV CPU threads. It
 first selects COCO class 24 (`backpack`), then accepts detections whose inner
 crop is sufficiently dark. Accepted boxes are drawn in green and published on:
 
@@ -291,9 +324,11 @@ crop is sufficiently dark. Accepted boxes are drawn in green and published on:
 - detection JSON: `/yolo/black_backpack`
 
 The darkness filter and detector thresholds are parameters in
-`mapping.launch.py`. The darkness check is intentionally basic; changing bag
-color, lighting, or adding reliable bag identity will require a small custom
-training set rather than only changing the color threshold.
+`mapping.launch.py`. The planner matches each detection to the depth frame
+from the same moment before computing the 3D goal and its A* path. The darkness
+check is intentionally basic; changing bag color, lighting, or adding reliable
+bag identity will require a small custom training set rather than only changing
+the color threshold.
 
 Each run starts with a clean RTAB-Map database. To see logs or verify topics:
 

@@ -1,9 +1,6 @@
 # Motion-oriented D415 settings. These are passed directly to the RealSense
 # node in addition to the parameters exposed by rs_launch.py.
-rgb_camera.enable_auto_exposure: false
-# D415 RGB exposure uses 100 us units: 280 = 28 ms, leaving USB/frame margin.
-rgb_camera.exposure: 280
-rgb_camera.gain: 128
+rgb_camera.enable_auto_exposure: true
 depth_module.enable_auto_exposure: false
 # D4xx depth exposure is in microseconds.
 depth_module.exposure: 4000
