@@ -52,7 +52,7 @@ def stop_process(process):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pi-ip", default=os.environ.get("PI_LAN_IP", "10.89.56.122"))
+    parser.add_argument("--pi-ip", default=os.environ.get("PI_LAN_IP", "100.73.168.115"))
     parser.add_argument("--pi-user", default=os.environ.get("PI_SSH_USER", "raspi"))
     args = parser.parse_args()
 

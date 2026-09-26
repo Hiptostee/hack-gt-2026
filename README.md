@@ -244,7 +244,7 @@ service from the repository on the Mac (replace `PI_LAN_IP`):
 
 ```bash
 docker compose down
-export PI_LAN_IP=192.168.1.123
+export PI_LAN_IP=100.73.168.115
 ROS_DOMAIN_ID=42 docker compose --profile viewer up rviz-viewer --build
 ```
 

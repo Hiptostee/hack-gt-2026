@@ -75,8 +75,8 @@ Run one command on the laptop from the repository root:
 python3 scripts/laptop_launch.py
 ```
 
-The laptop launcher uses `PI_LAN_IP=10.89.56.122` by default. Change it with
-`--pi-ip ADDRESS` if the Pi gets a new address. It prompts for the Gemini API
+The laptop launcher uses the Pi's Tailscale address `100.73.168.115` by default.
+Change it with `--pi-ip ADDRESS` if needed. It prompts for the Gemini API
 key if `GEMINI_API_KEY` is unset, asks for the Pi SSH password, opens the browser
 voice page, and starts the Docker RViz viewer. Connect TigerVNC Viewer to
 `localhost:5901`. `Ctrl-C` in each terminal stops its services. An optional
