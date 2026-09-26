@@ -19,7 +19,9 @@ gravity_mag: 9.81
 feat_rep_msckf: "GLOBAL_3D"
 feat_rep_slam: "ANCHORED_MSCKF_INVERSE_DEPTH"
 feat_rep_aruco: "ANCHORED_MSCKF_INVERSE_DEPTH"
-try_zupt: true
+# A low-disparity frame can trigger ZUPT even when the estimated velocity is
+# large, causing catastrophic pose jumps on a moving wearable rig.
+try_zupt: false
 zupt_chi2_multipler: 0
 zupt_max_velocity: 0.1
 zupt_noise_multiplier: 10
