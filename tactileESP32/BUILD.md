@@ -8,7 +8,7 @@ the Pi 5 sender, the hotspot, and the two ESP32 hands. What the system does and 
 |------|---------------|-----------|
 | Pi sender, tools, tests | Raspberry Pi 5, Ubuntu 24.04 (also builds on macOS/Linux for development) | CMake ≥ 3.20, C++17 compiler |
 | Hotspot | Pi 5 | NetworkManager (`nmcli`) |
-| Hand firmware | 2 × ESP32-WROOM-32 DevKit | Arduino ESP32 core 3.x (PlatformIO, Arduino IDE 2 or arduino-cli) |
+| Hand firmware | 2 × ESP32-WROOM-32 DevKit | PlatformIO with Arduino ESP32 core 3.x (arduino-cli and Arduino IDE 2 also work) |
 
 ---
 
@@ -38,7 +38,6 @@ This part doesn't depend on ROS or Docker.
 CTest runs the Pi library tests and simulated left/right firmware tests. If Python 3
 is available when CMake configures, it also runs `test_tools` (four tests total),
 covering the CLI, two-hand loopback delivery, signal shutdown, and listener reports.
-It also checks hotspot create/update failures with a fake `nmcli`, without changing networking.
 Python is only needed for that optional test; the Pi runtime remains C++.
 These tests need permission to bind local UDP sockets. Firmware simulation uses
 test doubles for Arduino/Wi-Fi and does not replace testing on real boards.
@@ -99,7 +98,7 @@ If `up` fails:
 
 ### Toolchain (on the laptop that flashes the boards)
 
-**Option 1: PlatformIO (recommended).** Install one of these:
+We use **PlatformIO**. Install one of these:
 
 - **PlatformIO Core (CLI):**
   ```bash
@@ -116,16 +115,6 @@ You don't need to install the ESP32 platform yourself. The first build downloads
 [pioarduino](https://github.com/pioarduino/platform-espressif32) platform 55.03.312, which
 provides Arduino ESP32 core 3.3.12. PlatformIO's official `espressif32` platform only
 ships core 2.x, so don't switch to it.
-
-**Option 2: without PlatformIO.** Use either of these:
-
-- **Arduino IDE 2:** Boards Manager → install **"esp32" by Espressif Systems**, version 3.x.
-- **arduino-cli:**
-  ```bash
-  brew install arduino-cli                  # or see arduino.github.io/arduino-cli
-  arduino-cli core update-index
-  arduino-cli core install esp32:esp32
-  ```
 
 No extra libraries are needed. The firmware only uses `WiFi` and `WiFiUdp` from the core.
 
@@ -156,8 +145,7 @@ cp tactile_hand/secrets.example.h tactile_hand/secrets.h
 ### Find the serial port
 
 ```bash
-pio device list                 # with PlatformIO
-arduino-cli board list          # or: ls /dev/cu.*   (macOS)   /  ls /dev/ttyUSB*  (Linux)
+pio device list                 # or: ls /dev/cu.*   (macOS)   /  ls /dev/ttyUSB*  (Linux)
 ```
 
 - The board shows up as something like `/dev/cu.usbserial-0001` or `/dev/cu.wchusbserial*`.
@@ -165,7 +153,7 @@ arduino-cli board list          # or: ls /dev/cu.*   (macOS)   /  ls /dev/ttyUSB
   doesn't appear, install the USB-serial driver for your board's chip: **CP210x** (Silicon Labs)
   or **CH340** (WCH). The chip name is printed next to the USB port.
 
-### Build and flash with PlatformIO
+### Build and flash
 
 The PlatformIO project is in `esp32/`. It has two environments, `left` and `right`,
 which differ only in `TACTILE_HAND_RIGHT`. Leave `config.h` alone; the environment sets it.
@@ -191,18 +179,22 @@ pio run -e right -t upload -t monitor --upload-port /dev/cu.usbserial-BBBB
 In VS Code, open `esp32/`, click the PlatformIO icon in the sidebar, then under
 **Project Tasks → left** (or **right**) click **Build**, **Upload** or **Monitor**.
 
-### Flash without PlatformIO (arduino-cli or Arduino IDE 2)
+<details>
+<summary>Without PlatformIO: arduino-cli or Arduino IDE 2</summary>
+
+Install the core first: `arduino-cli core update-index && arduino-cli core install esp32:esp32`,
+or in the IDE, Boards Manager → **"esp32" by Espressif Systems**, 3.x.
 
 With arduino-cli, use the helper script. It passes the correct hand setting for you:
 
 ```bash
-./flash.sh left                           # compile only (a quick check)
+./flash.sh left                           # compile only
 ./flash.sh left  /dev/cu.usbserial-AAAA   # flash the left board, then open its serial log
-./flash.sh right /dev/cu.usbserial-BBBB   # flash the right board
+./flash.sh right /dev/cu.usbserial-BBBB
 ```
 
-The serial monitor opens after flashing; press Ctrl-C to leave it. Build output goes to
-`esp32/build/` (gitignored). To use a specific arduino-cli binary, set `ARDUINO_CLI=/path/to/arduino-cli`.
+Build output goes to `esp32/build/` (gitignored). To use a specific arduino-cli binary,
+set `ARDUINO_CLI=/path/to/arduino-cli`.
 
 With Arduino IDE 2:
 1. Open `esp32/tactile_hand/tactile_hand.ino`.
@@ -210,6 +202,8 @@ With Arduino IDE 2:
 3. In `config.h`, set `TACTILE_HAND_RIGHT` to `0` (left board) or `1` (right board).
 4. Upload. Open Serial Monitor at **115200** baud.
 5. Set `TACTILE_HAND_RIGHT` back to `0` so the change isn't committed.
+
+</details>
 
 If the upload stops at `Connecting....`, hold the **BOOT** button on the board until
 writing starts.
@@ -271,8 +265,6 @@ Everything is in [esp32/tactile_hand/config.h](esp32/tactile_hand/config.h). Re-
 - **The Pi is the router.** `pi_hotspot.sh up` saves a NetworkManager connection called
   `tactile-ap` that turns `wlan0` into an access point. It has `autoconnect yes`, so it comes
   back on every boot. Run `up` once, not every session.
-  Re-running `up` updates the saved profile in place before reactivating it; a rejected
-  setting no longer deletes the existing profile.
 - **The hands have fixed addresses.** They don't ask the Pi for an address. They set
   10.42.0.2 or 10.42.0.3 themselves, chosen by the `left`/`right` build. The Pi hands out
   addresses from .10 upward to laptops, so the two never clash.
@@ -341,7 +333,7 @@ pings both hands.
 |-------|---------|---------------|
 | `ok` | ≈ 100 | Packets accepted. 20/s × 5 s = 100 |
 | `lost` | 0 to a few % | Gaps in the sequence number. Small losses are harmless, because every packet repeats the state |
-| `max gap` | well under 500 ms | Longest silence since an accepted packet, including ongoing outages and failsafe resets. **This is the number that matters.** Near 500 ms, the failsafe starts firing and the servo stutters |
+| `max gap` | well under 500 ms | Longest silence between packets. **This is the number that matters.** Near 500 ms, the failsafe starts firing and the servo stutters |
 | `rssi` | −30 to −60 dBm | Signal strength. Around −70 is marginal; −80 or worse causes dropouts |
 | `stale` / `malformed` | 0 | Late or out-of-order packets, or packets that aren't ours on port 4210 |
 
