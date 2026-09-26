@@ -26,7 +26,7 @@ The stack includes:
 - YOLOX black-backpack detection on `/yolo/annotated_image`
 - heading-aware A* route to a detected backpack on `/backpack/path`
 - laptop voice companion that uses the Pi camera and can activate backpack guidance
-- 60 Hz EKF stabilization between visual odometry updates
+- timestamp-preserving visual odometry on `/odometry/filtered`
 - RViz inside an XFCE desktop served by TigerVNC and noVNC
 - a small C++ status node that verifies both map outputs are arriving
 
@@ -101,102 +101,69 @@ source ros_ws/install/setup.bash
 ros2 launch realsense_mapper hardware.launch.py
 ```
 
-To isolate camera, odometry, and SLAM performance on the Pi without running
-YOLO detection or backpack path planning, launch with:
+On the Pi, run `./scripts/pi_launch.sh`. This starts the Zenoh router, D415,
+Pi camera bridge, and RGB-D odometry. Defaults are synchronized 640x480 at
+15 FPS, `Odom/ImageDecimation=2`, an 8 Hz odometry cap, and a latest-frame
+processing policy. Mapping, backpack inference, IMU, and ICP are disabled.
+The raw `/visual_odom` is filtered for invalid poses by `valid_visual_odom`,
+which republishes `/odometry/filtered` and `odom -> camera_link` with the
+original measurement timestamp. There is no EKF or pose smoothing node.
+
+First verify several minutes of continuous tracking while walking slowly:
 
 ```bash
-ros2 launch realsense_mapper hardware.launch.py enable_backpack_stack:=false
+ros2 topic hz /odometry/filtered
+ros2 topic echo /odometry/filtered --once --field header.stamp
 ```
 
-On compute-constrained Pi deployments, request synchronized 15 FPS streams so
-the camera does not produce frames faster than the mapping stack can consume:
-
-```bash
-ros2 launch realsense_mapper hardware.launch.py \
-  camera_profile:=640x480x15 \
-  odom_image_decimation:=2 \
-  enable_backpack_stack:=false
-```
-
-An MPU6050 at I2C address `0x68` can stabilize short-term rotation. The
-configured mounting transform assumes IMU X points up, Y points left, Z points
-backward, and the board is centered 2 m behind `camera_link`. Install the
-filter and grant the login user access to I2C once, then log out and back in:
+Check the Pi launch output for growing odometry delay, `Odometry lost!`, and
+resets. If the processor still cannot sustain 5-10 Hz, lower the camera profile
+or `odom_max_update_rate`; do not add mapping load yet. If visual odometry stays
+continuous, verify the MPU separately. Enable I2C and install tools once:
 
 ```bash
 sudo apt install -y i2c-tools ros-jazzy-imu-filter-madgwick
 sudo usermod -aG i2c "$USER"
 ```
 
-For the current RGB-D localization path on the Pi, launch with:
+On Ubuntu for Raspberry Pi, ensure `/boot/firmware/config.txt` contains
+`dtparam=i2c_arm=on` (before any `dtoverlay=` lines; see [Ubuntu's Pi boot
+configuration guide](https://ubuntu.com/hardware/docs/boards/how-to/special_hardware/rpi-config-txt/)),
+then reboot. Log out
+and back in for group membership, then check the physical bus and
+address (`0x68` by default; `0x69` is also common):
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-source ~/hack-gt-2026/ros_ws/install/setup.bash
-export ROS_DOMAIN_ID=42
-export RMW_IMPLEMENTATION=rmw_zenoh_cpp
-export ZENOH_ROUTER_CHECK_ATTEMPTS=30
-ros2 launch realsense_mapper hardware.launch.py \
-  camera_profile:=640x480x15 \
-  odom_image_decimation:=2 \
-  enable_backpack_stack:=false \
-  enable_imu:=false \
-  enable_icp:=false \
-  enable_loop_closure:=true
+ls /dev/i2c-*
+i2cdetect -y 1
+./scripts/pi_launch.sh enable_imu:=true
 ```
 
-Keep one Zenoh router running in another Pi terminal (`ros2 run rmw_zenoh_cpp
-rmw_zenohd`). To include YOLO and backpack routing in the same launch, set
-`enable_backpack_stack:=true`.
+In another Pi terminal with ROS and Zenoh sourced, check:
 
-The RGB-D tracker sometimes emits an invalid zero pose when it loses a frame.
-The `valid_visual_odom` node removes those messages and limits sudden position
-and orientation changes. `stable_odometry` then publishes a speed-limited pose
-and TF at 60 Hz for mapping. The raw `/visual_odom` topic remains available for
-diagnosis, and the planner watches `/visual_odom_valid` for tracking freshness.
-The external MPU6050 is optional; the current non-ICP path does not fuse it.
+```bash
+ros2 topic hz /imu/data_raw
+ros2 topic hz /imu/data
+```
 
-ICP is optional. Enable it only when the depth view contains enough varied
-geometry to initialize scan matching. On the Pi test, a mostly flat depth scene
-repeatedly gave `Scan complexity too low`, so RGB-D tracking was more reliable.
-Mapping limits image/odometry timestamp separation to 40 ms.
+If Madgwick says it is waiting for `/imu/data_raw`, check that the MPU node is
+alive and read its I2C error in the launch output. Override `imu_i2c_bus` and
+`imu_i2c_address` (decimal 104 or 105) if the device is on another bus/address.
+Keep the rig still for its five-second gyro calibration.
 
-The Pi hardware launch enables RTAB-Map loop closures. Graph corrections may
-move the map frame when a loop is recognized; the local `odom -> camera_link`
-pose remains speed-limited. Use `enable_loop_closure:=false` for a short local
-mapping run if map-frame corrections are distracting. Disabling closures
-allows long-term map drift.
+The default camera-to-IMU translation is zero meters, a temporary placeholder.
+Measure the IMU center relative to `camera_link`, then pass `imu_x`, `imu_y`,
+and `imu_z` in meters. The default rotation assumes IMU X up, Y left, Z back;
+verify all signs against the mounted board and override `imu_qx`, `imu_qy`,
+`imu_qz`, `imu_qw` as needed. There is no two-meter offset. Verify orientation
+by tilting each axis before using the IMU to judge localization quality.
 
-ICP uses 5 cm voxels, a bounded 8,000-point local map, and a 20% minimum
-correspondence ratio. These are starting settings, not hardware-verified accuracy
-guarantees. If ICP processing consistently exceeds the 67 ms frame interval at
-15 FPS or delay keeps growing, add `icp_voxel_size:=0.08` to reduce load. Use
-`odom_image_decimation:=1` when the Pi can process enough visual features at
-that resolution.
-
-Native RealSense cloud generation is disabled, including `pointcloud__neon_`
-on ARM, because enabling it caused a camera-process segmentation fault on the
-Pi. `rtabmap_util/point_cloud_xyz` projects aligned depth with color intrinsics,
-decimating by four in each dimension before publishing XYZ to `/icp/points`.
-Install `ros-jazzy-rtabmap-util` if upgrading an existing installation.
-Verify `ros2 topic info /icp/points` reports one publisher and
-`ros2 topic hz /icp_odom` receives messages before evaluating mapping quality.
-A topic listed only because ICP subscribes to it is not proof of cloud output.
-
-ICP predicts motion from its last successful registration and resets its local
-scan map after five consecutive failures. A reset is recovery from lost tracking,
-not a guarantee that the trajectory stayed accurate; repeated resets mean the
-depth geometry or registration still needs attention. An EKF cannot recover
-translation from the IMU alone while both odometry sources are lost. Start level
-and keep the rig still during gyro calibration so the relative IMU reference
-matches the initial odometry reference.
-
-For a repeatable check, hold still for 10 seconds after calibration, move slowly
-one metre and back, then turn slowly while viewing furniture or a room corner.
-Save the launch output with `2>&1 | tee /tmp/slam-quality.log` and inspect
-`ros2 topic hz /icp_odom` in a terminal with the same ROS/Zenoh environment.
-Compare drift, repeated surfaces, ICP correspondence ratios and processing
-delays against the previous run; a screenshot alone cannot validate accuracy.
+Once VO and IMU are stable, start mapping with
+`./scripts/pi_launch.sh enable_imu:=true enable_mapping:=true`. Enable the
+backpack stack with `enable_backpack_stack:=true` only when mapping is useful.
+Try `enable_icp:=true` separately after that, comparing odometry delay and
+tracking resets against the RGB-D baseline. Keep loop-closure rejection
+thresholds at their RTAB-Map defaults while improving the underlying trajectory.
 
 The hardware launch file starts the D415 directly over USB. The installer adds
 ROS 2 Jazzy, installs package dependencies with `rosdep`,
@@ -248,10 +215,11 @@ export ZENOH_ROUTER_CHECK_ATTEMPTS=30
 unset ZENOH_CONFIG_OVERRIDE
 ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
-  odom_image_decimation:=1 \
+  odom_image_decimation:=2 \
   enable_backpack_stack:=false \
-  enable_imu:=true \
-  enable_icp:=true
+  enable_imu:=false \
+  enable_icp:=false \
+  enable_mapping:=false
 ```
 
 Find the Pi's numeric LAN address with `hostname -I`. Keep the Mac and Pi on
@@ -282,8 +250,8 @@ docker compose --profile viewer down
    odometry.
 4. Revisit part of the room to let RTAB-Map detect a loop closure.
 
-The D415 runs synchronized color and aligned depth at 640x480x30 on USB 3.
-This doubles the original 15 FPS rate. Although some D400 stream tables list
+The D415 defaults to synchronized color and aligned depth at 640x480x15 on USB 3.
+Although some D400 stream tables list
 lower and faster individual modes, this D415 does not advertise 640x360 as a
 matching RGB8 and Z16 pair; forcing it makes Librealsense reject the pipeline.
 Color exposure starts at 24 ms and depth exposure at 4 ms, with auto-exposure
@@ -292,11 +260,11 @@ not universal calibration: use `realsense-viewer` in the actual operating
 environment and increase exposure only when the image is too dark to retain
 features. The macOS bridge applies the same profile and exposure settings.
 
-Raw visual odometry is published on `/visual_odom`; valid visual poses are
-published on `/visual_odom_valid`. In non-ICP mode, `stable_odometry` publishes
-`/odometry/filtered` and `odom -> camera_link` at 60 Hz, moving toward the most
-recent valid pose at bounded speed. RTAB-Map consumes that stabilized odometry.
-When visual tracking is lost, the pose holds until valid frames return.
+Raw visual odometry is published on `/visual_odom`; accepted poses are
+published on `/odometry/filtered`. The corresponding
+`odom -> camera_link` TF uses each accepted measurement's original timestamp.
+When visual tracking is lost, no new pose is published. RTAB-Map consumes
+these accepted poses when mapping is enabled.
 
 RViz is preconfigured for:
 

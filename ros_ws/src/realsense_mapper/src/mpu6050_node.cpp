@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <linux/i2c.h>
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -8,6 +9,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cerrno>
+#include <cstring>
 #include <functional>
 #include <stdexcept>
 #include <string>
@@ -40,20 +43,25 @@ public:
     const int calibration_samples = static_cast<int>(std::max<int64_t>(
       0, declare_parameter("calibration_samples", 500)));
 
-    const std::string device = "/dev/i2c-" + std::to_string(bus);
-    fd_ = open(device.c_str(), O_RDWR);
+    device_ = "/dev/i2c-" + std::to_string(bus);
+    fd_ = open(device_.c_str(), O_RDWR);
     if (fd_ < 0) {
-      throw std::runtime_error("Cannot open " + device + "; check the i2c group");
+      throw std::runtime_error("Cannot open " + device_ + ": " + std::strerror(errno) +
+              "; enable I2C and check device permissions");
     }
     if (ioctl(fd_, I2C_SLAVE, address_) < 0) {
-      throw std::runtime_error("Cannot select MPU6050 I2C address");
+      throw std::runtime_error("Cannot select MPU6050 address " +
+              std::to_string(address_) + " on " + device_ + ": " + std::strerror(errno));
     }
 
     const uint8_t who_am_i = read_register(0x75);
     if (who_am_i != 0x68 && who_am_i != 0x69) {
       throw std::runtime_error(
-              "Unexpected WHO_AM_I value 0x" + hex_byte(who_am_i));
+              "Unexpected MPU6050 WHO_AM_I value 0x" + hex_byte(who_am_i) +
+              " on " + device_ + " at address " + std::to_string(address_));
     }
+    RCLCPP_INFO(get_logger(), "MPU6050 detected on %s at address 0x%s",
+      device_.c_str(), hex_byte(static_cast<uint8_t>(address_)).c_str());
 
     // Wake the device, use the X gyro PLL, 44 Hz DLPF, +/-4 g and +/-500 deg/s.
     write_register(0x6B, 0x01);
@@ -72,6 +80,7 @@ public:
     timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / rate_hz_),
       std::bind(&Mpu6050Node::publish_sample, this));
+    RCLCPP_INFO(get_logger(), "Publishing /imu/data_raw at %.0f Hz", rate_hz_);
   }
 
   ~Mpu6050Node() override
@@ -93,21 +102,31 @@ private:
   uint8_t read_register(uint8_t reg)
   {
     uint8_t value = 0;
-    if (write(fd_, &reg, 1) != 1 || read(fd_, &value, 1) != 1) {
-      throw std::runtime_error("MPU6050 register read failed");
-    }
+    read_bytes(reg, &value, 1);
     return value;
+  }
+
+  void read_bytes(uint8_t reg, uint8_t * data, uint16_t length)
+  {
+    i2c_msg messages[2]{};
+    messages[0].addr = static_cast<__u16>(address_);
+    messages[0].len = 1;
+    messages[0].buf = &reg;
+    messages[1].addr = static_cast<__u16>(address_);
+    messages[1].flags = I2C_M_RD;
+    messages[1].len = length;
+    messages[1].buf = data;
+    i2c_rdwr_ioctl_data transaction{messages, 2};
+    if (ioctl(fd_, I2C_RDWR, &transaction) != 2) {
+      throw std::runtime_error("MPU6050 I2C read failed on " + device_ +
+              " at address " + std::to_string(address_) + ": " + std::strerror(errno));
+    }
   }
 
   std::array<int16_t, 7> read_sample()
   {
-    uint8_t reg = 0x3B;
     std::array<uint8_t, 14> raw{};
-    if (write(fd_, &reg, 1) != 1 ||
-      read(fd_, raw.data(), raw.size()) != static_cast<ssize_t>(raw.size()))
-    {
-      throw std::runtime_error("MPU6050 sample read failed");
-    }
+    read_bytes(0x3B, raw.data(), raw.size());
     return {
       signed_word(raw[0], raw[1]), signed_word(raw[2], raw[3]),
       signed_word(raw[4], raw[5]), signed_word(raw[6], raw[7]),
@@ -175,6 +194,7 @@ private:
 
   int fd_{-1};
   int address_{0x68};
+  std::string device_;
   double rate_hz_{100.0};
   std::string frame_id_;
   std::array<double, 3> gyro_bias_{};

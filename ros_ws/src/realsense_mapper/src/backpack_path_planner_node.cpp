@@ -43,7 +43,7 @@ public:
     obstacle_threshold_ = declare_parameter<int>("obstacle_threshold", 50);
     inflation_radius_ = declare_parameter<double>("inflation_radius", 0.25);
     standoff_distance_ = declare_parameter<double>("standoff_distance", 0.70);
-    max_prediction_age_ = declare_parameter<double>("max_prediction_age", 0.75);
+    max_visual_odom_age_ = declare_parameter<double>("max_visual_odom_age", 0.75);
     allow_unknown_ = declare_parameter<bool>("allow_unknown", true);
     preferred_clearance_ = declare_parameter<double>("preferred_clearance", 0.55);
     clearance_weight_ = declare_parameter<double>("clearance_weight", 2.0);
@@ -78,9 +78,10 @@ public:
       "/yolo/black_backpack", 10,
       std::bind(&BackpackPathPlanner::detection_callback, this, _1));
     visual_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/visual_odom_valid", rclcpp::SensorDataQoS(),
-      [this](nav_msgs::msg::Odometry::ConstSharedPtr) {
+      "/odometry/filtered", rclcpp::SensorDataQoS(),
+      [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {
         last_visual_odom_ = std::chrono::steady_clock::now();
+        last_visual_odom_stamp_ = rclcpp::Time(msg->header.stamp, get_clock()->get_clock_type());
         have_visual_odom_ = true;
       });
     watchdog_timer_ = create_wall_timer(std::chrono::milliseconds(50), [this]() {
@@ -119,9 +120,14 @@ private:
 
   bool visual_odometry_fresh() const
   {
-    return have_visual_odom_ &&
-      std::chrono::duration<double>(
-      std::chrono::steady_clock::now() - last_visual_odom_).count() <= max_prediction_age_;
+    if (!have_visual_odom_ || !last_visual_odom_stamp_) {
+      return false;
+    }
+    const double arrival_age = std::chrono::duration<double>(
+      std::chrono::steady_clock::now() - last_visual_odom_).count();
+    const double measurement_age = (now() - *last_visual_odom_stamp_).seconds();
+    return arrival_age <= max_visual_odom_age_ &&
+           measurement_age >= -0.1 && measurement_age <= max_visual_odom_age_;
   }
 
   void publish_path_valid(bool valid)
@@ -268,7 +274,7 @@ private:
       publish_path_valid(false);
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000,
-        "Visual odometry stale; refusing to plan from EKF prediction alone");
+        "Visual odometry stale; pausing guidance until tracking recovers");
       return;
     }
     const auto box = parse_best_box(message->data);
@@ -654,7 +660,7 @@ private:
   int obstacle_threshold_;
   double inflation_radius_;
   double standoff_distance_;
-  double max_prediction_age_;
+  double max_visual_odom_age_;
   bool allow_unknown_;
   double preferred_clearance_;
   double clearance_weight_;
@@ -666,6 +672,7 @@ private:
   bool have_planning_start_{false};
   bool have_visual_odom_{false};
   std::chrono::steady_clock::time_point last_visual_odom_{};
+  std::optional<rclcpp::Time> last_visual_odom_stamp_;
   std::chrono::steady_clock::time_point last_plan_attempt_{};
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;

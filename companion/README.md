@@ -77,13 +77,14 @@ Opens `http://localhost:8080`. Features:
 
 ### Current demo: click and speak on the laptop, camera and navigation on the Pi
 
-Run one command on the Pi from the repository root. It starts the Zenoh router,
+Run one command on the Pi from the repository root. After the RGB-D odometry
+baseline has stayed continuous for several minutes, this starts the Zenoh router,
 mapping, YOLO backpack guidance, and the camera/guidance bridge. Build the ROS
 workspace after pulling updates (`cd ros_ws && colcon build --packages-select
 realsense_mapper && cd ..`). The Pi does not need a Gemini key:
 
 ```bash
-./scripts/pi_launch.sh
+./scripts/pi_launch.sh enable_mapping:=true enable_backpack_stack:=true
 ```
 
 Run one command on the laptop from the repository root:

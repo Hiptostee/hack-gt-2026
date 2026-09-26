@@ -42,12 +42,9 @@ if ! kill -0 "$router_pid" 2>/dev/null; then
   exit 1
 fi
 
-echo "Starting mapping, backpack guidance, and Pi bridge..."
+echo "Starting camera, RGB-D odometry, and Pi bridge (mapping, IMU, ICP, and backpack stack opt-in)..."
 ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
-  enable_backpack_stack:=true \
-  enable_imu:=true \
-  enable_icp:=false \
   "$@" &
 mapping_pid=$!
 wait -n "$router_pid" "$mapping_pid" || true
