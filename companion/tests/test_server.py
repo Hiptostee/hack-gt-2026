@@ -110,16 +110,21 @@ class HTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.state = State(FakeGemini())
-        cls.server = CompanionServer(("127.0.0.1", 0), cls.state, "test-pairing-code")
+        try:
+            cls.server = CompanionServer(("127.0.0.1", 0), cls.state, "test-pairing-code")
+        except PermissionError:
+            raise unittest.SkipTest("Socket bind not permitted in sandboxed environment")
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.base = "http://127.0.0.1:" + str(cls.server.server_port)
 
     @classmethod
     def tearDownClass(cls):
-        cls.server.shutdown()
-        cls.server.server_close()
-        cls.thread.join()
+        if hasattr(cls, "server"):
+            cls.server.shutdown()
+            cls.server.server_close()
+        if hasattr(cls, "thread"):
+            cls.thread.join()
 
     def request(self, path, data=None, authenticated=True):
         headers = {"Content-Type": "application/json"}

@@ -3,10 +3,14 @@ import io
 import threading
 import wave
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
 try:
     import sounddevice as sd
-except ImportError:  # Let state-machine tests run without PortAudio installed.
+except (ImportError, OSError):  # Let state-machine tests run without PortAudio installed.
     sd = None
 
 CAPTURE_RATE = 16000

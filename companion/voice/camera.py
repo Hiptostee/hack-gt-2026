@@ -37,11 +37,11 @@ class NoCamera:
         pass
 
 
-def open_camera(ros_topic=None, image_path=None):
+def open_camera(ros_topic=None, image_path=None, hazard_topic=None, on_hazard=None):
     if ros_topic:
         from companion.ros_camera import RosCamera
 
-        return RosCamera(ros_topic)
+        return RosCamera(ros_topic, hazard_topic=hazard_topic, on_hazard=on_hazard)
     if image_path:
         return StaticImageCamera(image_path)
     return NoCamera()

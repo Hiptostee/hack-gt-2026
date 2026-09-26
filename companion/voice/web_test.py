@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from companion.errors import AppError
-from companion.voice.gemini import Gemini, DEFAULT_MODEL
+from companion.voice.gemini import Gemini, DEFAULT_MODEL, optimize_image
 
 ELEVENLABS_API = "https://api.elevenlabs.io/v1"
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"
@@ -53,7 +53,7 @@ def resolve_voice(key):
     return DEFAULT_VOICE, "stock fallback"
 
 
-def play_host_audio(audio_bytes=None, text=""):
+def play_host_audio(audio_bytes=None, text="", speed=1.15):
     """Plays audio directly through the host computer's speakers (macOS / Linux / Pi)."""
     def _run():
         if audio_bytes:
@@ -76,9 +76,11 @@ def play_host_audio(audio_bytes=None, text=""):
                         pass
         elif text:
             if platform.system() == "Darwin" and shutil.which("say"):
-                subprocess.run(["say", text], check=False)
+                rate = str(int(175 * speed))
+                subprocess.run(["say", "-r", rate, text], check=False)
             elif shutil.which("espeak-ng"):
-                subprocess.run(["espeak-ng", text], check=False)
+                rate = str(int(160 * speed))
+                subprocess.run(["espeak-ng", "-s", rate, text], check=False)
     threading.Thread(target=_run, daemon=True).start()
 
 
@@ -148,19 +150,34 @@ class Handler(BaseHTTPRequestHandler):
                 note(f"Pi camera unavailable: {err}", "warn")
         elif body.get("image"):
             image_jpeg = base64.b64decode(body["image"])
-            note(f"Webcam frame: {len(image_jpeg):,} bytes")
+            raw_len = len(image_jpeg)
+            image_jpeg = optimize_image(image_jpeg)
+            note(f"Webcam frame: {raw_len:,} -> {len(image_jpeg):,} bytes")
         elif self.server.fallback_image:
             image_jpeg = self.server.fallback_image
-            note(f"Using fallback image: {len(image_jpeg):,} bytes")
+            raw_len = len(image_jpeg)
+            image_jpeg = optimize_image(image_jpeg)
+            note(f"Using fallback image: {raw_len:,} -> {len(image_jpeg):,} bytes")
         else:
             image_jpeg = None
             note("No image available", "warn")
 
         # ---- Gemini ----
-        note(f"Calling Gemini ({self.server.gemini.model})…")
+        note(f"Calling Gemini ({self.server.gemini.model}, streaming)…")
         gemini_t0 = time.monotonic()
+        t_first_token = [None]
+
+        def _on_chunk(chunk):
+            if t_first_token[0] is None:
+                t_first_token[0] = round(time.monotonic() - gemini_t0, 2)
+                note(f"  first token: {t_first_token[0]}s", "pass")
+
         try:
-            result = self.server.gemini.ask(audio_wav, image_jpeg, [])
+            result = self.server.gemini.ask(
+                audio_wav, image_jpeg, [],
+                stream=True,
+                on_answer_chunk=_on_chunk,
+            )
             gemini_s = round(time.monotonic() - gemini_t0, 2)
             note(f"Gemini OK — {gemini_s}s", "pass")
             note(f"  heard: {result['transcript']!r}")
@@ -182,6 +199,7 @@ class Handler(BaseHTTPRequestHandler):
             "landmark": result["landmark"],
             "device_action": result["device_action"],
             "gemini_time": gemini_s,
+            "gemini_first_token": t_first_token[0],
         }
         if result["device_action"] == "navigate_backpack":
             if self.server.guidance:
@@ -232,11 +250,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def _synthesize(self, text):
         """Returns (audio_bytes | None, first_byte_s, error_string)."""
+        speed_env = os.environ.get("COMPANION_SPEECH_SPEED")
+        try:
+            speed = float(speed_env) if speed_env else 1.15
+        except ValueError:
+            speed = 1.15
+
+        payload = {"text": text, "model_id": self.server.el_model}
+        if abs(speed - 1.0) > 0.01:
+            payload["voice_settings"] = {
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+                "speed": round(speed, 2),
+            }
+
         url = (ELEVENLABS_API + "/text-to-speech/" + self.server.el_voice + "?"
                + urlencode({"output_format": "mp3_22050_32"}))
         req = Request(url,
-                      data=json.dumps({"text": text,
-                                       "model_id": self.server.el_model}).encode(),
+                      data=json.dumps(payload).encode(),
                       headers={"xi-api-key": self.server.el_key,
                                "Content-Type": "application/json"})
         try:
@@ -948,7 +979,8 @@ async function onUp(e){
     const tDiv=$('r-timings');
     tDiv.innerHTML='';
     const add=(l,v)=>{const s=document.createElement('span');s.innerHTML=`${l} <b>${v}</b>`;tDiv.appendChild(s)};
-    if(d.gemini_time) add('Gemini',d.gemini_time+'s');
+    if(d.gemini_first_token!=null) add('Gemini 1st token',d.gemini_first_token+'s');
+    if(d.gemini_time) add('Gemini total',d.gemini_time+'s');
     if(d.el_first_byte!=null) add('11Labs 1st byte',d.el_first_byte+'s');
     if(d.el_total) add('11Labs total',d.el_total+'s');
     if(d.total_time) add('Total',d.total_time+'s');
@@ -1033,6 +1065,7 @@ def main():
 
     chosen_model = args.model or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
 
+    HTTPServer.allow_reuse_address = True
     server = HTTPServer((args.host, args.port), Handler)
     server.gemini = Gemini(gemini_key, chosen_model)
     server.el_key = el_key

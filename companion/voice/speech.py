@@ -14,7 +14,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 API = "https://api.elevenlabs.io/v1"
 PCM_RATE = 22050
@@ -23,14 +26,16 @@ OUTPUT_FORMAT = "pcm_22050"
 # alone cannot list voices. Falling back to a long-standing stock voice keeps
 # the device talking instead of dropping to the robotic local engine.
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"
+DEFAULT_SPEED = 1.15
 
 
 class Speech:
-    def __init__(self, audio, key="", voice_id="", model_id="eleven_flash_v2_5"):
+    def __init__(self, audio, key="", voice_id="", model_id="eleven_flash_v2_5", speed=None):
         self.audio = audio
         self.key = key
         self.voice_id = voice_id
         self.model_id = model_id
+        self.speed = speed if speed is not None else float(os.environ.get("COMPANION_SPEECH_SPEED", str(DEFAULT_SPEED)))
         self.process = None
         self.cloud_ok = bool(key)
         self.on_first_audio = None  # Called when the first PCM chunk arrives.
@@ -70,7 +75,15 @@ class Speech:
     def _say_cloud(self, text):
         url = (API + "/text-to-speech/" + self.voice_id + "/stream?"
                + urlencode({"output_format": OUTPUT_FORMAT}))
-        payload = {"text": text, "model_id": self.model_id}
+        payload = {
+            "text": text,
+            "model_id": self.model_id,
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+                "speed": self.speed,
+            },
+        }
         request = Request(url, data=json.dumps(payload).encode(),
                           headers={"xi-api-key": self.key, "Content-Type": "application/json"})
         try:
@@ -88,27 +101,35 @@ class Speech:
     def _chunks(self, response):
         remainder = b""
         first = True
+        chunk_size = 1024
         while True:
-            block = response.read(4096)
+            block = response.read(chunk_size)
             if not block:
                 break
-            if first and self.on_first_audio:
-                self.on_first_audio()
+            if first:
+                if self.on_first_audio:
+                    self.on_first_audio()
                 first = False
+                chunk_size = 4096
             block = remainder + block
             # A 16-bit sample must not be split across two yielded chunks.
             usable = len(block) - (len(block) % 2)
             remainder = block[usable:]
-            yield np.frombuffer(block[:usable], dtype="<i2")
+            if np is not None:
+                yield np.frombuffer(block[:usable], dtype="<i2")
 
     def _say_local(self, text):
         self.stop()
+        speed_factor = self.speed
         if platform.system() == "Darwin":
-            command = ["say", text]
+            wpm = str(int(175 * speed_factor))
+            command = ["say", "-r", wpm, text]
         elif shutil.which("espeak-ng"):
-            command = ["espeak-ng", "-s", "170", text]
+            wpm = str(int(170 * speed_factor))
+            command = ["espeak-ng", "-s", wpm, text]
         elif shutil.which("espeak"):
-            command = ["espeak", "-s", "170", text]
+            wpm = str(int(170 * speed_factor))
+            command = ["espeak", "-s", wpm, text]
         else:
             print("No local speech engine. Install espeak-ng.", file=sys.stderr)
             self.audio.earcon("error")

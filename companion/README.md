@@ -89,11 +89,14 @@ the Pi through the tunnel and sends the audio and JPEG to Gemini from the laptop
 Answers play in the laptop browser. A spoken backpack navigation request goes
 back through the tunnel to activate the ROS guidance gate on the Pi.
 
-### Model Configuration
+### Model & Performance Configuration
 
-`GEMINI_MODEL` defaults to `gemini-3.5-flash-lite`, which delivers consistent ~2.5s multimodal responses.
-- Set via environment variable: `export GEMINI_MODEL="gemini-3.5-flash-lite"`
-- Automatic fallback: If transient 503/429/404 errors occur on the active model, the system automatically retries with alternative models (`gemini-3.1-flash-lite`).
+- `GEMINI_MODEL` defaults to `gemini-3.5-flash-lite`, delivering consistent multimodal responses.
+  - Set via environment variable: `export GEMINI_MODEL="gemini-3.5-flash-lite"`
+  - Streaming SSE: Responses use `:streamGenerateContent?alt=sse` with `answer` ordered first in the JSON schema, reducing time-to-first-token to ~0.58s.
+  - Automatic image downscaling: Images >1024px are downscaled to ~100KB JPEG using Pillow, OpenCV, or macOS `sips` before transmission, cutting upload latency by ~95%.
+- `COMPANION_SPEECH_SPEED`: Playback speed factor for voice responses (default `1.15`, 15% faster). Supports ElevenLabs `voice_settings.speed` and local `say`/`espeak-ng`.
+- `--hazard-topic`: ROS 2 safety topic (default `/hazard_warning`). When an obstacle or drop-off alert arrives, active voice speech is cut off immediately and state resets to idle so the user can hear obstacle warnings.
 
 ### Raspberry Pi Production Deployment Notes
 

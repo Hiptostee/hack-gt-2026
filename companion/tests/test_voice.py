@@ -66,10 +66,12 @@ class FakeGemini:
         self.error = error
         self.calls = []
 
-    def ask(self, audio, image, history):
-        self.calls.append({"audio": audio, "image": image, "history": list(history)})
+    def ask(self, audio, image, history, stream=False, on_answer_chunk=None, **kwargs):
+        self.calls.append({"audio": audio, "image": image, "history": list(history), "stream": stream})
         if self.error:
             raise self.error
+        if stream and on_answer_chunk and "answer" in self.result:
+            on_answer_chunk(self.result["answer"])
         return self.result
 
 
@@ -320,6 +322,21 @@ class GeminiRequest(unittest.TestCase):
         with self.assertRaises(AppError):
             client.ask(b"WAV", None, [])
 
+    def test_streaming_extracts_answer_incrementally(self):
+        chunks = [
+            b'data: {"candidates":[{"content":{"parts":[{"text":"{\\n  \\\"answer\\\": \\\"A brown door\\\""}]}}]}\n\n',
+            b'data: {"candidates":[{"content":{"parts":[{"text":",\\n  \\\"transcript\\\": \\\"what is ahead\\\",\\n  \\\"landmark\\\": \\\"\\\",\\n  \\\"device_action\\\": \\\"none\\\"\\n}"}]}}]}\n\n'
+        ]
+        received = []
+        client = gemini_module.Gemini("test-key", "gemini-3.8-flash")
+        with mock.patch.object(gemini_module, "urlopen",
+                               lambda *_a, **_k: io.BytesIO(b"".join(chunks))):
+            res = client.ask(b"WAV", None, [], stream=True,
+                             on_answer_chunk=lambda c: received.append(c))
+        self.assertEqual("".join(received), "A brown door")
+        self.assertEqual(res["answer"], "A brown door")
+        self.assertEqual(res["transcript"], "what is ahead")
+
 
 class GeminiRetries(unittest.TestCase):
     """A 503 is demand, not a broken request. Retrying saves the user from
@@ -396,6 +413,18 @@ class Help(unittest.TestCase):
         companion._help(companion.generation)
         companion._help(companion.generation)
         self.assertEqual(audio.played, 1)
+
+
+class HazardPreemption(unittest.TestCase):
+    def test_hazard_warning_cuts_speech_immediately(self):
+        companion, audio, speech = build()
+        companion.state = "busy"
+        gen_before = companion.generation
+        companion._hazard(0.0)
+        self.assertEqual(speech.stops, 1)
+        self.assertIn("stopped", audio.earcons)
+        self.assertGreater(companion.generation, gen_before)
+        self.assertEqual(companion.state, "idle")
 
 
 if __name__ == "__main__":

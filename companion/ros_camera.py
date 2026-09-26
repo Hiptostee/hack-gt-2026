@@ -14,7 +14,7 @@ from companion.errors import AppError
 
 
 class RosCamera:
-    def __init__(self, topic):
+    def __init__(self, topic, hazard_topic=None, on_hazard=None):
         rclpy.init(args=[])
         self.node = Node("scene_companion_camera")
         self.lock = threading.Lock()
@@ -23,6 +23,13 @@ class RosCamera:
         self.age_at_receipt = float("inf")
         self.subscription = self.node.create_subscription(Image, topic, self.receive,
                                                          qos_profile_sensor_data)
+        if hazard_topic and on_hazard:
+            try:
+                from std_msgs.msg import String
+                self.hazard_sub = self.node.create_subscription(
+                    String, hazard_topic, lambda _m: on_hazard(), 10)
+            except Exception:
+                pass
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.node)
         self.thread = threading.Thread(target=self.spin, daemon=True)

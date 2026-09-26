@@ -90,10 +90,19 @@ class Companion:
             if kind == "quit":
                 break
             handler = {"press": self._press, "release": self._release,
-                       "repeat_due": self._repeat_due, "done": self._done}.get(kind)
+                       "repeat_due": self._repeat_due, "done": self._done,
+                       "hazard": self._hazard}.get(kind)
             if handler:
                 handler(at)
         self.shutdown()
+
+    def _hazard(self, _at):
+        if self.state == "busy":
+            self.generation += 1
+            self.speech.stop()
+            self.audio.earcon("stopped")
+            self.state = "idle"
+            print("Hazard preemption: speech stopped for obstacle/drop-off", file=sys.stderr)
 
     def _press(self, at):
         if self.state == "recording":
@@ -205,7 +214,7 @@ class Companion:
         self.audio.earcon("thinking")
         ticker = self._ticker(generation)
         try:
-            result = self.gemini.ask(wav, image, self.session.history)
+            result = self.gemini.ask(wav, image, self.session.history, stream=True)
         finally:
             ticker.set()
         if generation != self.generation:
@@ -302,6 +311,8 @@ def main():
                         help="GPIO pin for the push-to-talk button. Omit for keyboard dev mode.")
     parser.add_argument("--ros", action="store_true", help="Take frames from the ROS camera")
     parser.add_argument("--topic", default="/camera/color/image_raw")
+    parser.add_argument("--hazard-topic", default="/hazard_warning",
+                        help="ROS topic for obstacle alerts that preempt speech")
     parser.add_argument("--image", help="Dev: use a static JPEG instead of a camera")
     parser.add_argument("--gain", type=float, default=1.0, help="Output volume multiplier")
     args = parser.parse_args()
@@ -316,6 +327,8 @@ def main():
         print(f"FATAL: no audio output device ({error}).", file=sys.stderr)
         return 1
 
+    button, events = open_button(args.pin)
+
     speech = Speech(audio,
                     key=os.environ.get("ELEVENLABS_API_KEY", ""),
                     voice_id=os.environ.get("ELEVENLABS_VOICE_ID", ""),
@@ -323,12 +336,13 @@ def main():
     gemini = Gemini(os.environ.get("GEMINI_API_KEY", ""),
                     os.environ.get("GEMINI_MODEL", DEFAULT_MODEL))
     try:
-        camera = open_camera(args.topic if args.ros else None, args.image)
+        camera = open_camera(args.topic if args.ros else None, args.image,
+                             hazard_topic=args.hazard_topic if args.ros else None,
+                             on_hazard=lambda: events.put(("hazard", time.monotonic())))
     except AppError as error:
         print(f"FATAL: {error}", file=sys.stderr)
         return 1
 
-    button, events = open_button(args.pin)
     guidance = None
     if args.ros:
         from companion.voice.guidance import RosGuidance

@@ -27,7 +27,7 @@ class Gemini:
         self.image = None
         self.action = "navigate_backpack"
 
-    def ask(self, _audio, image, _history):
+    def ask(self, _audio, image, _history, stream=False, on_answer_chunk=None):
         self.image = image
         return {"transcript": "bring me to the backpack", "answer": "Okay",
                 "landmark": "", "device_action": self.action}
