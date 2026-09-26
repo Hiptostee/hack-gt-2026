@@ -91,6 +91,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(self.server.fallback_image, "image/jpeg")
             else:
                 self.send_error(404)
+        elif self.path.startswith("/pi-frame?") and self.server.ros_camera:
+            try:
+                image, _captured_at = self.server.ros_camera.capture()
+                self._send(image, "image/jpeg")
+            except AppError:
+                self.send_error(503, "No recent Pi camera frame")
         elif self.path == "/status":
             self._json({
                 "gemini_model": self.server.gemini.model,
@@ -647,9 +653,16 @@ async function init() {
 
   // Camera
   if (serverStatus && serverStatus.ros_camera) {
-    fallback.style.display = 'block';
+    fallback.style.display = serverStatus.camera_status === 'Ready' ? 'block' : 'none';
     camTag.textContent = 'Pi camera';
     dot('cam', serverStatus.camera_status === 'Ready');
+    const refreshPiFrame = () => {
+      fallback.src = '/pi-frame?t=' + Date.now();
+    };
+    fallback.onerror = () => { fallback.style.display = 'none'; dot('cam', false); };
+    fallback.onload = () => { fallback.style.display = 'block'; dot('cam', true); };
+    refreshPiFrame();
+    setInterval(refreshPiFrame, 1000);
   } else try {
     const stream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}});
     webcamEl.srcObject = stream;
@@ -667,6 +680,7 @@ async function init() {
   }
 
   // Mic
+  statusEl.textContent = 'Allow microphone access in the browser…';
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({audio:{channelCount:1}});
     dot('mic', true);

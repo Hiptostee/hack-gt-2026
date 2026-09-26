@@ -47,6 +47,8 @@ class WebRosVoice(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
+            with urlopen(f"http://127.0.0.1:{server.server_port}/pi-frame?t=1") as response:
+                self.assertEqual(response.read(), b"pi-camera-jpeg")
             payload = {"audio": base64.b64encode(b"wav").decode(),
                        "image": base64.b64encode(b"laptop-image").decode(),
                        "play_host": True}
