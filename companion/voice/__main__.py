@@ -286,6 +286,12 @@ class Companion:
 
     def _act(self, result, previous, generation):
         action = result["device_action"]
+        if action == "navigate_target":
+            if result.get("box_2d") is None:
+                self._speak(result["answer"], generation)
+            else:
+                self._speak(self._go_to(result), generation, local=True)
+            return
         if action == "navigate_backpack":
             if self.guidance is None:
                 self._speak("Backpack guidance is unavailable here.", generation, local=True)
@@ -313,6 +319,16 @@ class Companion:
         elif action == "quieter":
             self.audio.gain = max(0.3, self.audio.gain - 0.3)
         self._speak(result["answer"], generation)
+
+    def _go_to(self, result):
+        if self.guidance is None:
+            return "Guidance is unavailable here."
+        frame_info = getattr(self.camera, "frame_info", None)
+        frame = frame_info(self.session.image) if frame_info else None
+        if frame is None:
+            return "Guidance needs the live camera."
+        return self.guidance.go_to(result["target"] or "object", result["box_2d"],
+                                   frame["stamp"], frame["width"], frame["height"])
 
     def _help(self, generation):
         self._speak(status_text(self.camera, self.gemini, self.session), generation,
@@ -405,7 +421,13 @@ def main():
     guidance = None
     if args.ros:
         from companion.voice.guidance import RosGuidance
-        guidance = RosGuidance()
+
+        def announce(text, priority):
+            # Called on the ROS thread; speech blocks until played.
+            threading.Thread(target=speech.say, args=(text,),
+                             kwargs={"local": True, "priority": priority}, daemon=True).start()
+
+        guidance = RosGuidance(on_event=announce)
     print(f"Voice companion on {platform.system()}. "
           f"Gemini: {'configured' if gemini.key else 'MISSING KEY'}. "
           f"Speech: {'ElevenLabs' if speech.key and speech.voice_id else 'local engine'}. "

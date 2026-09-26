@@ -41,7 +41,16 @@ Set landmark to an empty string unless a clear, distinctive landmark or readable
 room/sign label is visible. Landmark must describe observed evidence, not an
 inferred building or location.
 Set device_action to navigate_backpack when the user asks to go to, find, or be
-guided to the backpack. Set it to stop_navigation when they ask to stop guidance.
+guided to the backpack. Set it to navigate_target when they ask to go to, be
+taken to, or be guided to a visible object or place other than the backpack.
+Asking where something is, is a question, not a navigation request.
+For navigate_target, set target to a short noun phrase naming the object, and
+set box_2d to [y_min, x_min, y_max, x_max] for the single most prominent or
+nearest matching instance, each value on a 0-1000 scale relative to the image.
+If the object is not clearly visible, set box_2d to null and say in the answer
+that you do not see it. Never box something you are unsure of. For every other
+action, set target to an empty string and box_2d to null.
+Set device_action to stop_navigation when they ask to stop guidance.
 These actions only request the local navigation system; never invent a route or
 claim guidance has started. For repeat, louder, quieter, stop, help, and
 save_landmark, use the matching action. Set it to guardian when the user asks
@@ -53,7 +62,7 @@ You cannot contact anyone, place calls, or activate emergency actions.
 
 SCHEMA = {
     "type": "OBJECT",
-    "required": ["answer", "transcript", "landmark", "device_action"],
+    "required": ["answer", "transcript", "landmark", "device_action", "target", "box_2d"],
     "properties": {
         "answer": {"type": "STRING"},
         "transcript": {"type": "STRING"},
@@ -61,10 +70,43 @@ SCHEMA = {
         "device_action": {
             "type": "STRING",
             "enum": ["none", "repeat", "louder", "quieter", "stop", "help", "save_landmark",
-                     "navigate_backpack", "stop_navigation", "guardian"],
+                     "navigate_backpack", "navigate_target", "stop_navigation", "guardian"],
         },
+        "target": {"type": "STRING"},
+        # Google's detection examples use this name and order; the model is most
+        # reliable with them.
+        "box_2d": {"type": "ARRAY", "items": {"type": "INTEGER"}, "nullable": True},
     },
 }
+
+
+def valid_box(box):
+    """[y_min, x_min, y_max, x_max] on 0-1000, or None."""
+    if not isinstance(box, list) or len(box) != 4:
+        return None
+    if not all(isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 1000 for v in box):
+        return None
+    y_min, x_min, y_max, x_max = box
+    if y_min >= y_max or x_min >= x_max:
+        return None
+    return box
+
+
+def _fields(parsed):
+    answer = parsed["answer"]
+    if not isinstance(answer, str) or not answer.strip():
+        raise ValueError("Empty answer")
+    action = parsed.get("device_action", "none")
+    if action not in SCHEMA["properties"]["device_action"]["enum"]:
+        action = "none"
+    navigating = action == "navigate_target"
+    target = re.sub(r'["\\]', "", str(parsed.get("target") or ""))[:40] if navigating else ""
+    return {"transcript": str(parsed.get("transcript", ""))[:1000],
+            "answer": answer[:4000],
+            "landmark": str(parsed.get("landmark", ""))[:200],
+            "device_action": action,
+            "target": target.strip(),
+            "box_2d": valid_box(parsed.get("box_2d")) if navigating else None}
 
 
 def optimize_image(image_bytes, max_dim=1024, quality=75):
@@ -274,14 +316,7 @@ class Gemini:
         try:
             # Handle direct dictionary parsed from streaming full_text
             if isinstance(result, dict) and "answer" in result:
-                answer = result["answer"]
-                if not isinstance(answer, str) or not answer.strip():
-                    raise ValueError("Empty answer")
-                action = result.get("device_action", "none")
-                return {"transcript": str(result.get("transcript", ""))[:1000],
-                        "answer": answer[:4000],
-                        "landmark": str(result.get("landmark", ""))[:200],
-                        "device_action": action if action in SCHEMA["properties"]["device_action"]["enum"] else "none"}
+                return _fields(result)
 
             # Handle standard generateContent response
             candidate = result["candidates"][0]
@@ -289,15 +324,7 @@ class Gemini:
                 raise ValueError("Incomplete answer")
             text = "".join(part.get("text", "") for part in candidate["content"]["parts"]
                            if not part.get("thought"))
-            parsed = json.loads(text)
-            answer = parsed["answer"]
-            if not isinstance(answer, str) or not answer.strip():
-                raise ValueError("Empty answer")
-            action = parsed.get("device_action", "none")
-            return {"transcript": str(parsed.get("transcript", ""))[:1000],
-                    "answer": answer[:4000],
-                    "landmark": str(parsed.get("landmark", ""))[:200],
-                    "device_action": action if action in SCHEMA["properties"]["device_action"]["enum"] else "none"}
+            return _fields(json.loads(text))
         except (KeyError, IndexError, ValueError, TypeError):
             raise AppError("I did not get a complete answer. Try again.") from None
 

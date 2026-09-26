@@ -99,6 +99,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(image, "image/jpeg")
             except AppError:
                 self.send_error(503, "No recent Pi camera frame")
+        elif self.path.startswith("/guidance/events?") and self.server.guidance:
+            try:
+                since = int(self.path.split("since=", 1)[1].split("&")[0])
+            except (IndexError, ValueError):
+                since = 0
+            self._json({"events": self.server.guidance.events_since(since)})
         elif self.path == "/status":
             self._json({
                 "gemini_model": self.server.gemini.model,
@@ -108,6 +114,7 @@ class Handler(BaseHTTPRequestHandler):
                 "el_key": bool(self.server.el_key),
                 "el_model": self.server.el_model,
                 "ros_camera": bool(self.server.ros_camera),
+                "guidance": bool(self.server.guidance),
                 "camera_status": (self.server.ros_camera.status()
                                   if self.server.ros_camera else "Not connected"),
                 "fallback_image": bool(self.server.fallback_image),
@@ -141,9 +148,11 @@ class Handler(BaseHTTPRequestHandler):
             note("No audio received", "warn")
 
         # ---- image ----
+        frame = None
         if self.server.ros_camera:
             try:
-                image_jpeg, _captured_at = self.server.ros_camera.capture()
+                frame = self.server.ros_camera.capture_frame()
+                image_jpeg = frame["jpeg"]
                 note(f"Pi ROS camera frame: {len(image_jpeg):,} bytes")
             except AppError as err:
                 image_jpeg = None
@@ -185,6 +194,8 @@ class Handler(BaseHTTPRequestHandler):
             if result["landmark"]:
                 note(f"  landmark: {result['landmark']!r}")
             note(f"  action: {result['device_action']}")
+            if result["device_action"] == "navigate_target":
+                note(f"  target: {result['target']!r} box_2d: {result['box_2d']}")
         except AppError as err:
             gemini_s = round(time.monotonic() - gemini_t0, 2)
             note(f"Gemini FAIL ({gemini_s}s): {err}", "fail")
@@ -201,7 +212,21 @@ class Handler(BaseHTTPRequestHandler):
             "gemini_time": gemini_s,
             "gemini_first_token": t_first_token[0],
         }
-        if result["device_action"] == "navigate_backpack":
+        if (result["device_action"] == "navigate_target" and result["box_2d"] is not None
+                and image_jpeg):
+            resp["target"] = result["target"]
+            resp["box_2d"] = result["box_2d"]
+            resp["target_image"] = base64.b64encode(image_jpeg).decode()
+            if not self.server.guidance:
+                resp["answer"] = "Guidance is unavailable here."
+            elif not frame or not frame.get("stamp"):
+                resp["answer"] = "Guidance needs the live camera."
+            else:
+                resp["answer"] = self.server.guidance.go_to(
+                    result["target"] or "object", result["box_2d"],
+                    frame["stamp"], frame["width"], frame["height"])
+            note(resp["answer"])
+        elif result["device_action"] == "navigate_backpack":
             if self.server.guidance:
                 resp["answer"] = self.server.guidance.start()
             else:
@@ -376,6 +401,7 @@ header .tag{
   position:relative;margin-bottom:1.1rem;
 }
 .cam video,.cam img{width:100%;height:100%;object-fit:cover;display:block}
+.target-view{width:100%;border-radius:8px;display:block}
 .cam-tag{
   position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);
   backdrop-filter:blur(6px);padding:2px 8px;border-radius:6px;
@@ -523,6 +549,7 @@ header .tag{
     <div class="f"><label>Heard</label><p id="r-heard"></p></div>
     <div class="f"><label>Answer</label><p id="r-answer"></p></div>
     <div class="f" id="r-lm-wrap" style="display:none"><label>Landmark</label><p id="r-lm" class="lm"></p></div>
+    <div class="f" id="r-target-wrap" style="display:none"><label>Target (frame sent to Gemini)</label><canvas id="r-target" class="target-view"></canvas></div>
     <div class="f" id="r-audio-wrap" style="display:none">
       <label>Voice Output</label>
       <div class="audio-player-row">
@@ -727,6 +754,7 @@ async function init() {
     log('Microphone access denied — enable in browser settings', 'fail');
   }
 
+  if (serverStatus && serverStatus.guidance) setInterval(pollGuidance, 1000);
   log('Ready.', 'pass');
 }
 
@@ -974,6 +1002,9 @@ async function onUp(e){
     const lmW=$('r-lm-wrap');
     if(d.landmark){$('r-lm').textContent=d.landmark;lmW.style.display=''}
     else lmW.style.display='none';
+    const tW=$('r-target-wrap');
+    if(d.box_2d&&d.target_image){drawTarget(d.target_image,d.box_2d,d.target);tW.style.display=''}
+    else tW.style.display='none';
 
     // timings
     const tDiv=$('r-timings');
@@ -995,6 +1026,38 @@ async function onUp(e){
     playEarcon('error');
     log('Fetch error: '+err.message,'fail');
   }
+}
+
+/* ================ named-object guidance ================ */
+function drawTarget(b64, box, label){
+  const img=new Image();
+  img.onload=()=>{
+    const c=$('r-target'), ctx=c.getContext('2d');
+    c.width=img.naturalWidth; c.height=img.naturalHeight;
+    ctx.drawImage(img,0,0);
+    // box_2d is [y_min, x_min, y_max, x_max] on 0-1000.
+    const [y0,x0,y1,x1]=box.map((v,i)=>v/1000*(i%2?c.width:c.height));
+    ctx.lineWidth=Math.max(2,c.width/200); ctx.strokeStyle='#3ddc84'; ctx.fillStyle='#3ddc84';
+    ctx.strokeRect(x0,y0,x1-x0,y1-y0);
+    ctx.font=`${Math.max(14,Math.round(c.width/40))}px sans-serif`;
+    ctx.fillText(label||'target',x0+4,Math.max(y0-6,18));
+  };
+  img.src='data:image/jpeg;base64,'+b64;
+}
+
+let guidanceEventN=0, guidancePrimed=false;
+async function pollGuidance(){
+  try{
+    const r=await fetch('/guidance/events?since='+guidanceEventN);
+    const d=await r.json();
+    for(const e of d.events||[]){
+      guidanceEventN=Math.max(guidanceEventN,e.n);
+      if(!guidancePrimed) continue;  // Events from before this page loaded.
+      log('Guidance: '+e.text, e.priority<=1?'warn':'info');
+      speakFallback(e.text);
+    }
+    guidancePrimed=true;
+  }catch(err){}
 }
 
 function onCancel(e){
