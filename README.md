@@ -122,7 +122,8 @@ DDS discovery server on the Pi. Find the Pi's LAN address with `hostname -I`,
 then start the server using that address (replace `PI_LAN_IP` below):
 
 ```bash
-fastdds discovery -i 0 -l PI_LAN_IP -p 11811
+unset ROS_DISCOVERY_SERVER
+fast-discovery-server -i 0 -l PI_LAN_IP -p 11811
 ```
 
 Keep that terminal open. In the Pi terminal used for mapping, restart the stack
