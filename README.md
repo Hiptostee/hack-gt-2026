@@ -104,6 +104,30 @@ ros2 launch realsense_mapper hardware.launch.py \
   enable_backpack_stack:=false
 ```
 
+An MPU6050 at I2C address `0x68` can stabilize short-term rotation. The
+configured mounting transform assumes IMU X points down, Y points right, Z
+points backward, and the board is 2 cm left of `camera_link`. Install the
+filter and grant the login user access to I2C once, then log out and back in:
+
+```bash
+sudo apt install -y i2c-tools ros-jazzy-imu-filter-madgwick
+sudo usermod -aG i2c "$USER"
+```
+
+Keep the rig completely still for the first five seconds after launching so
+the node can estimate gyro bias:
+
+```bash
+ros2 launch realsense_mapper hardware.launch.py \
+  camera_profile:=640x480x15 \
+  odom_image_decimation:=2 \
+  enable_backpack_stack:=false \
+  enable_imu:=true
+```
+
+The filter fuses gravity-referenced roll and pitch plus all gyro rates. It does
+not fuse absolute IMU yaw because the MPU6050 has no magnetometer.
+
 The hardware launch file starts the D415 directly over USB. The installer adds
 ROS 2 Jazzy, installs package dependencies with `rosdep`,
 and builds the workspace with `colcon`. RViz/noVNC are intentionally not

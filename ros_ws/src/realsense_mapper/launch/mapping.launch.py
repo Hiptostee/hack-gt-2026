@@ -16,6 +16,7 @@ def generate_launch_description():
     camera_source = LaunchConfiguration("camera_source")
     camera_profile = LaunchConfiguration("camera_profile")
     enable_backpack_stack = LaunchConfiguration("enable_backpack_stack")
+    enable_imu = LaunchConfiguration("enable_imu")
     odom_image_decimation = LaunchConfiguration("odom_image_decimation")
     use_realsense = IfCondition(
         PythonExpression(["'", camera_source, "' == 'realsense'"])
@@ -40,9 +41,9 @@ def generate_launch_description():
         "odom_frame_id": "odom",
         # The EKF owns odom->camera_link so there is exactly one TF publisher.
         "publish_tf": False,
-        # At 60 Hz, RTAB-Map's short-horizon motion guess reduces feature search
-        # distance; the EKF below bridges brief periods with no visual update.
-        "Odom/GuessMotion": "true",
+        # A bad constant-velocity guess can cascade after a blurred frame. The
+        # EKF and IMU provide prediction without feeding that guess back here.
+        "Odom/GuessMotion": "false",
         # Decimation can be raised on compute-constrained hardware while SLAM
         # continues receiving the original-resolution RGB-D streams.
         "Odom/ImageDecimation": ParameterValue(
@@ -107,6 +108,11 @@ def generate_launch_description():
             description="Start YOLO detection and backpack path planning",
         ),
         DeclareLaunchArgument(
+            "enable_imu",
+            default_value="false",
+            description="Read and fuse an MPU6050 at I2C address 0x68",
+        ),
+        DeclareLaunchArgument(
             "camera_profile",
             default_value="640x480x30",
             description="Shared color and depth stream profile",
@@ -165,6 +171,53 @@ def generate_launch_description():
                 "--child-frame-id", "camera_color_optical_frame",
             ],
             condition=use_tcp,
+        ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="camera_to_imu_tf",
+            arguments=[
+                "--x", "0", "--y", "0.02", "--z", "0",
+                "--qx", "0.7071068", "--qy", "0",
+                "--qz", "-0.7071068", "--qw", "0",
+                "--frame-id", "camera_link",
+                "--child-frame-id", "imu_link",
+            ],
+            condition=IfCondition(enable_imu),
+        ),
+        Node(
+            package="realsense_mapper",
+            executable="mpu6050_node",
+            name="mpu6050",
+            output="screen",
+            parameters=[{
+                "i2c_bus": 1,
+                "i2c_address": 0x68,
+                "frame_id": "imu_link",
+                "rate_hz": 100.0,
+                "calibration_samples": 500,
+            }],
+            condition=IfCondition(enable_imu),
+        ),
+        Node(
+            package="imu_filter_madgwick",
+            executable="imu_filter_madgwick_node",
+            name="imu_filter",
+            output="screen",
+            parameters=[{
+                "use_mag": False,
+                "publish_tf": False,
+                "world_frame": "enu",
+                "gain": 0.1,
+                "zeta": 0.0,
+                "orientation_stddev": 0.05,
+                "remove_gravity_vector": False,
+            }],
+            remappings=[
+                ("imu/data_raw", "/imu/data_raw"),
+                ("imu/data", "/imu/data"),
+            ],
+            condition=IfCondition(enable_imu),
         ),
         Node(
             package="rtabmap_odom",

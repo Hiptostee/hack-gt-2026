@@ -26,6 +26,21 @@ ekf_filter_node:
     odom0_pose_rejection_threshold: 5.0
     odom0_twist_rejection_threshold: 3.0
 
+    # The MPU6050 has no magnetometer. Fuse gravity-referenced roll/pitch and
+    # gyro rates, but not its drifting absolute yaw or noisy acceleration.
+    imu0: /imu/data
+    imu0_config: [false, false, false,
+                  true,  true,  false,
+                  false, false, false,
+                  true,  true,  true,
+                  false, false, false]
+    imu0_differential: false
+    imu0_relative: true
+    imu0_queue_size: 50
+    imu0_pose_rejection_threshold: 1.0
+    imu0_twist_rejection_threshold: 1.0
+    imu0_remove_gravitational_acceleration: false
+
     # Prediction uncertainty grows quickly. This is intentional: it smooths a
     # few dropped frames but does not claim long-term dead reckoning.
     process_noise_covariance: [
