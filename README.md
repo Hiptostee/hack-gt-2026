@@ -12,6 +12,7 @@ The stack includes:
 - 2D occupancy grid on `/rtabmap/map`
 - YOLOX black-backpack detection on `/yolo/annotated_image`
 - heading-aware A* route to a detected backpack on `/backpack/path`
+- button-and-voice scene companion that can activate backpack guidance
 - 60 Hz EKF stabilization between visual odometry updates
 - RViz inside an XFCE desktop served by TigerVNC and noVNC
 - a small C++ status node that verifies both map outputs are arriving
@@ -106,7 +107,7 @@ ros2 launch realsense_mapper hardware.launch.py \
 
 An MPU6050 at I2C address `0x68` can stabilize short-term rotation. The
 configured mounting transform assumes IMU X points up, Y points left, Z points
-backward, and the board is 4 cm left of `camera_link`. Install the
+backward, and the board is centered 2 m behind `camera_link`. Install the
 filter and grant the login user access to I2C once, then log out and back in:
 
 ```bash
@@ -293,6 +294,9 @@ With the backpack stack enabled, `/backpack/direction` publishes a single
 `std_msgs/UInt8` code at 5 Hz: `0` forward, `1` left, `2` right, `3` rotate
 left, `4` rotate right. Rotation commands start when the route heading differs
 from the wearer's yaw by about 60 degrees; smaller corrections use `1` or `2`.
+Direction codes are sent only after the voice companion activates
+`/backpack/guidance_active`. That topic must be refreshed at least twice a second;
+its publisher goes inactive when the user says to stop or the companion exits.
 It compares the wearer's heading with a point 0.55 m along the A* route, with
 hysteresis to reduce flicker. It publishes no code when the path or tracking
 status is stale, the path is invalid, or the wearer has reached the route endpoint.

@@ -211,7 +211,7 @@ def generate_launch_description():
             executable="static_transform_publisher",
             name="camera_to_imu_tf",
             arguments=[
-                "--x", "0", "--y", "0.04", "--z", "0",
+                "--x", "-2.0", "--y", "0", "--z", "0",
                 "--qx", "0", "--qy", "-0.7071068",
                 "--qz", "0", "--qw", "0.7071068",
                 "--frame-id", "camera_link",

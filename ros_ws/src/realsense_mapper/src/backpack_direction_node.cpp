@@ -29,6 +29,12 @@ public:
     validity_timeout_s_ = declare_parameter<double>("validity_timeout_s", 0.5);
 
     command_pub_ = create_publisher<std_msgs::msg::UInt8>("/backpack/direction", 10);
+    active_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/backpack/guidance_active", 10,
+      [this](std_msgs::msg::Bool::ConstSharedPtr message) {
+        active_ = message->data;
+        last_active_ = std::chrono::steady_clock::now();
+      });
     path_sub_ = create_subscription<nav_msgs::msg::Path>(
       "/backpack/path", 10, std::bind(&BackpackDirection::path_callback, this, _1));
     valid_sub_ = create_subscription<std_msgs::msg::Bool>(
@@ -68,7 +74,8 @@ private:
   void publish_direction()
   {
     const auto now = std::chrono::steady_clock::now();
-    if (!valid_ || !path_ ||
+    if (!active_ || !valid_ || !path_ ||
+      std::chrono::duration<double>(now - last_active_).count() > validity_timeout_s_ ||
       std::chrono::duration<double>(now - last_validity_).count() > validity_timeout_s_ ||
       std::chrono::duration<double>(now - last_path_).count() > path_timeout_s_)
     {
@@ -148,6 +155,9 @@ private:
   std::uint8_t last_direction_{kForward};
   bool have_direction_{false};
   bool valid_{false};
+  bool active_{false};
+  std::chrono::steady_clock::time_point last_active_{};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr active_sub_;
   nav_msgs::msg::Path::ConstSharedPtr path_;
   std::chrono::steady_clock::time_point last_path_{};
   std::chrono::steady_clock::time_point last_validity_{};

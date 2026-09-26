@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scene companion</title><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<main>
+  <header><p class="eyebrow">WEARABLE COMPANION</p><h1>What’s around me?</h1></header>
+  <p id="notice" role="status" aria-live="polite">Connect to begin. Help controls also work without the camera.</p>
+  <details id="connection" open>
+    <summary>Connect to the wearable</summary>
+    <label for="token">Pairing code from the server terminal</label>
+    <input id="token" type="password" autocomplete="off" spellcheck="false">
+    <button id="connect">Connect</button>
+    <p>The code stays in this tab. Your Gemini key stays on the wearable.</p>
+  </details>
+  <section aria-labelledby="scene-title">
+    <h2 id="scene-title">Explore a scene</h2>
+    <div class="actions"><button id="capture" data-scene>Capture wearable image</button>
+      <label class="file-label" for="photo">Use a phone photo</label>
+      <input id="photo" type="file" accept="image/*" capture="environment" data-scene></div>
+    <p>Describe, Read text, and Ask send this image to Google Gemini. Phone location is not included.</p>
+    <figure id="preview" hidden><img id="scene-image" alt="Selected scene snapshot"><figcaption id="scene-age"></figcaption></figure>
+    <div class="actions"><button id="describe" data-scene>Describe scene</button><button id="read" data-scene>Read text</button></div>
+    <form id="question-form">
+      <label for="question">Ask about this image</label>
+      <textarea id="question" rows="2" maxlength="1000" placeholder="Where is the checkout counter?" data-scene></textarea>
+      <div class="actions"><button type="submit" data-scene>Ask</button><button id="dictate" type="button" hidden data-scene>Dictate question</button></div>
+      <p id="dictation-note" hidden>Dictation may use your browser provider’s speech service. Review the question before asking.</p>
+    </form>
+    <div class="examples" aria-label="Example questions">
+      <button data-question="How many doors are visible?" data-scene>Count doors</button>
+      <button data-question="Is there somewhere to sit in this image?" data-scene>Find seating</button>
+      <button data-question="Is anyone visible in front of the camera?" data-scene>Find people</button>
+    </div>
+    <article aria-labelledby="answer-title"><h3 id="answer-title">Answer</h3>
+      <p id="answer" aria-live="polite">Capture or select a scene, then ask a question.</p>
+      <div class="actions"><button id="speak">Read answer aloud</button><button id="stop-speech">Stop speech</button><button id="forget" data-scene>Delete scene</button></div>
+    </article>
+    <p>Answers describe a still image. They do not establish that a walking route is clear.</p>
+  </section>
+  <section aria-labelledby="help-title">
+    <h2 id="help-title">Contact someone you trust</h2>
+    <label for="contact">Trusted person’s phone number</label>
+    <input id="contact" type="tel" autocomplete="tel" placeholder="Include country code">
+    <button id="save-contact">Save number on this device</button>
+    <button class="help-button" id="help-open">Hold for 2 seconds for help</button>
+    <p>Or tap once and confirm. Nothing is sent automatically.</p>
+    <div id="help-controls" hidden>
+      <h3 tabindex="-1" id="help-focus">Help controls</h3>
+      <div class="actions"><button id="call">Call trusted person</button><button id="locate">Get phone location</button></div>
+      <p id="location-status" role="status">Phone location has not been requested.</p>
+      <div class="actions"><button id="send-location">Text my location</button><button id="share-scene">Share this scene</button></div>
+      <p>Sharing opens your phone’s message or share screen. You choose the recipient and complete sending there.</p>
+      <div class="actions"><button id="locator">Play locator sound</button><button id="stop-locator">Stop locator sound</button></div>
+      <p>The locator plays on this phone for up to 15 seconds. Loudness depends on its volume and audio output.</p>
+      <p id="landmark">No landmark has been observed yet.</p>
+      <button id="speak-landmark">Read last landmark aloud</button>
+      <button id="help-close">Close help controls</button>
+    </div>
+  </section>
+  <section aria-labelledby="status-title"><h2 id="status-title">Device status</h2>
+    <p id="device-status">Wearable connection not checked.</p><p id="battery-status">Phone battery: checking availability.</p>
+    <button id="refresh">Refresh status</button><button id="clear-local">Forget saved number and landmark</button>
+  </section>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+    <h2 id="confirm-title">Confirm action</h2><p id="confirm-message"></p>
+    <div class="actions"><button id="cancel-action" autofocus>Cancel</button><button id="confirm-action">Confirm</button></div>
+  </dialog>
+</main>
+</body></html>
