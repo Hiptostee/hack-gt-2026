@@ -20,17 +20,17 @@ fi
 router_pid=""
 mapping_pid=""
 cleanup() {
-  trap - EXIT INT TERM
+  trap - EXIT HUP INT TERM
   if [[ -n "$mapping_pid" ]]; then
-    kill -INT "$mapping_pid" 2>/dev/null || true
+    kill -TERM "$mapping_pid" 2>/dev/null || true
     wait "$mapping_pid" 2>/dev/null || true
   fi
   if [[ -n "$router_pid" ]]; then
-    kill -INT "$router_pid" 2>/dev/null || true
+    kill -TERM "$router_pid" 2>/dev/null || true
     wait "$router_pid" 2>/dev/null || true
   fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT HUP INT TERM
 
 echo "Starting Zenoh router on port 7447..."
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"]' \
