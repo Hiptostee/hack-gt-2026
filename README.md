@@ -137,6 +137,14 @@ ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 openvins_calibration:=true enable_backpack_stack:=false
 ```
 
+If an update only changes the estimator template, refresh that file without
+re-capturing camera intrinsics or replacing the camera–IMU calibration:
+
+```bash
+cp src/realsense_mapper/config/openvins/estimator_config.yaml \
+  ~/.ros/openvins_d415/estimator_config.yaml
+```
+
 Then restart for mapping, holding still through gyro calibration and
 OpenVINS initialization:
 
