@@ -2,7 +2,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
@@ -20,13 +20,39 @@ def generate_launch_description():
     enable_icp = LaunchConfiguration("enable_icp")
     icp_voxel_size = LaunchConfiguration("icp_voxel_size")
     odom_image_decimation = LaunchConfiguration("odom_image_decimation")
+    localization_backend = LaunchConfiguration("localization_backend")
+    openvins_calibration = LaunchConfiguration("openvins_calibration")
+    openvins_config_path = LaunchConfiguration("openvins_config_path")
+    use_legacy = IfCondition(PythonExpression([
+        "'", localization_backend, "' == 'rgbd' and '", openvins_calibration, "'.lower() != 'true'",
+    ]))
+    use_legacy_icp = IfCondition(PythonExpression([
+        "'", localization_backend, "' == 'rgbd' and '", enable_icp,
+        "'.lower() == 'true' and '", openvins_calibration, "'.lower() != 'true'",
+    ]))
+    use_legacy_imu = IfCondition(PythonExpression([
+        "'", localization_backend, "' == 'rgbd' and '", enable_imu,
+        "'.lower() == 'true' and '", openvins_calibration, "'.lower() != 'true'",
+    ]))
+    run_imu = IfCondition(PythonExpression([
+        "'", enable_imu, "'.lower() == 'true' and '",
+        openvins_calibration, "'.lower() != 'true'",
+    ]))
+    use_legacy_no_icp = IfCondition(PythonExpression([
+        "'", localization_backend, "' == 'rgbd' and '", enable_icp,
+        "'.lower() != 'true' and '", openvins_calibration, "'.lower() != 'true'",
+    ]))
+    use_openvins = IfCondition(PythonExpression([
+        "'", localization_backend, "' == 'openvins' and '", openvins_calibration,
+        "'.lower() != 'true'",
+    ]))
+    mapping_enabled = UnlessCondition(openvins_calibration)
     use_realsense = IfCondition(
         PythonExpression(["'", camera_source, "' == 'realsense'"])
     )
     use_tcp = IfCondition(PythonExpression(["'", camera_source, "' == 'tcp'"]))
 
-    # A wearable camera pitches and rolls as the user walks. Visual odometry must
-    # therefore estimate all 6 DoF, even though the D415 has no IMU.
+    # Legacy RGB-D mode must estimate all 6 DoF as the wearable camera moves.
     common_parameters = {
         "frame_id": "camera_link",
         "map_frame_id": "map",
@@ -100,6 +126,24 @@ def generate_launch_description():
         "Grid/MaxGroundHeight": "0.2",
     })
 
+    def validate_openvins(context):
+        backend = localization_backend.perform(context)
+        calibration = openvins_calibration.perform(context).lower() == "true"
+        if backend not in ("rgbd", "openvins"):
+            raise RuntimeError("localization_backend must be 'openvins' or 'rgbd'")
+        if backend == "openvins" and not calibration:
+            if enable_imu.perform(context).lower() != "true":
+                raise RuntimeError("OpenVINS needs enable_imu:=true")
+            path = os.path.expanduser(openvins_config_path.perform(context))
+            needed = ("estimator_config.yaml", "kalibr_imu_chain.yaml", "kalibr_imucam_chain.yaml")
+            if not all(os.path.isfile(os.path.join(os.path.dirname(path), name)) for name in needed):
+                raise RuntimeError(
+                    "OpenVINS calibration missing. Run once with openvins_calibration:=true, "
+                    "then restart normally. Expected files beside " + path
+                )
+            get_package_share_directory("ov_msckf")
+        return []
+
     return LaunchDescription([
         DeclareLaunchArgument(
             "camera_source",
@@ -119,7 +163,20 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "enable_icp",
             default_value="false",
-            description="Fuse point-to-plane depth-cloud ICP translation",
+            description="Legacy RGB-D mode only; not used with OpenVINS",
+        ),
+        DeclareLaunchArgument(
+            "localization_backend", default_value="rgbd",
+            description="openvins for D415+MPU VIO, rgbd for the legacy odometry stack",
+        ),
+        DeclareLaunchArgument(
+            "openvins_calibration", default_value="false",
+            description="Capture D415 CameraInfo to ~/.ros/openvins_d415, without starting SLAM",
+        ),
+        DeclareLaunchArgument(
+            "openvins_config_path",
+            default_value=os.path.expanduser("~/.ros/openvins_d415/estimator_config.yaml"),
+            description="OpenVINS estimator config (with adjacent IMU/camera calibration files)",
         ),
         DeclareLaunchArgument(
             "icp_voxel_size",
@@ -136,6 +193,7 @@ def generate_launch_description():
             default_value="1",
             description="Downsample factor used internally by RGB-D odometry",
         ),
+        OpaqueFunction(function=validate_openvins),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(realsense_share, "launch", "rs_launch.py")
@@ -205,7 +263,7 @@ def generate_launch_description():
                 "--frame-id", "camera_link",
                 "--child-frame-id", "imu_link",
             ],
-            condition=IfCondition(enable_imu),
+            condition=run_imu,
         ),
         Node(
             package="realsense_mapper",
@@ -219,7 +277,7 @@ def generate_launch_description():
                 "rate_hz": 100.0,
                 "calibration_samples": 500,
             }],
-            condition=IfCondition(enable_imu),
+            condition=run_imu,
         ),
         Node(
             package="imu_filter_madgwick",
@@ -239,7 +297,38 @@ def generate_launch_description():
                 ("imu/data_raw", "/imu/data_raw"),
                 ("imu/data", "/imu/data"),
             ],
-            condition=IfCondition(enable_imu),
+            condition=use_legacy_imu,
+        ),
+        Node(
+            package="realsense_mapper",
+            executable="generate_openvins_config.py",
+            name="generate_openvins_config",
+            output="screen",
+            condition=IfCondition(openvins_calibration),
+        ),
+        Node(
+            package="ov_msckf",
+            executable="run_subscribe_msckf",
+            name="run_subscribe_msckf",
+            namespace="ov_msckf",
+            output="screen",
+            condition=use_openvins,
+            parameters=[{
+                "config_path": openvins_config_path,
+                "max_cameras": 1,
+                "use_stereo": False,
+                "topic_imu": "/imu/data_raw",
+                "topic_camera0": "/camera/color/image_raw",
+                "publish_global_to_imu_tf": False,
+                "publish_calibration_tf": False,
+            }],
+        ),
+        Node(
+            package="realsense_mapper",
+            executable="openvins_odom_bridge_node",
+            name="openvins_odom_bridge",
+            output="screen",
+            condition=use_openvins,
         ),
         Node(
             package="rtabmap_odom",
@@ -250,6 +339,7 @@ def generate_launch_description():
             parameters=[odom_parameters],
             remappings=camera_topics + [("odom", "/visual_odom")],
             arguments=["--ros-args", "--log-level", "info"],
+            condition=use_legacy,
         ),
         Node(
             package="rtabmap_util",
@@ -257,7 +347,7 @@ def generate_launch_description():
             name="icp_depth_cloud",
             namespace="rtabmap",
             output="screen",
-            condition=IfCondition(enable_icp),
+            condition=use_legacy_icp,
             parameters=[{
                 "approx_sync": False,
                 "qos": 2,
@@ -283,7 +373,7 @@ def generate_launch_description():
             name="icp_odometry",
             namespace="rtabmap",
             output="screen",
-            condition=IfCondition(enable_icp),
+            condition=use_legacy_icp,
             parameters=[{
                 "frame_id": "camera_link",
                 "odom_frame_id": "odom",
@@ -336,7 +426,7 @@ def generate_launch_description():
             name="ekf_filter_node",
             output="screen",
             parameters=[os.path.join(mapper_share, "config", "ekf.yaml")],
-            condition=UnlessCondition(enable_icp),
+            condition=use_legacy_no_icp,
             remappings=[("odometry/filtered", "/odometry/filtered")],
         ),
         Node(
@@ -344,7 +434,7 @@ def generate_launch_description():
             executable="ekf_node",
             name="ekf_filter_node",
             output="screen",
-            condition=IfCondition(enable_icp),
+            condition=use_legacy_icp,
             parameters=[
                 os.path.join(mapper_share, "config", "ekf.yaml"),
                 os.path.join(mapper_share, "config", "ekf_icp.yaml"),
@@ -361,19 +451,24 @@ def generate_launch_description():
             remappings=camera_topics + [("odom", "/odometry/filtered")],
             # Start a clean database for each proof-of-concept run.
             arguments=["-d"],
+            condition=mapping_enabled,
         ),
         Node(
             package="realsense_mapper",
             executable="mapping_status_node",
             name="mapping_status",
             output="screen",
+            condition=mapping_enabled,
         ),
         Node(
             package="realsense_mapper",
             executable="backpack_detector_node",
             name="backpack_detector",
             output="screen",
-            condition=IfCondition(enable_backpack_stack),
+            condition=IfCondition(PythonExpression([
+                "'", enable_backpack_stack, "'.lower() == 'true' and '",
+                openvins_calibration, "'.lower() != 'true'",
+            ])),
             parameters=[{
                 "model_path": "/opt/models/yolox.onnx",
                 "confidence_threshold": 0.18,
@@ -389,8 +484,15 @@ def generate_launch_description():
             executable="backpack_path_planner_node",
             name="backpack_path_planner",
             output="screen",
-            condition=IfCondition(enable_backpack_stack),
+            condition=IfCondition(PythonExpression([
+                "'", enable_backpack_stack, "'.lower() == 'true' and '",
+                openvins_calibration, "'.lower() != 'true'",
+            ])),
             parameters=[{
+                "odometry_health_topic": PythonExpression([
+                    "'/odometry/filtered' if '", localization_backend,
+                    "' == 'openvins' else '/visual_odom'",
+                ]),
                 # Heading changes add cost, producing fewer and longer straight
                 # segments without allowing the path to cross occupied cells.
                 "turn_penalty": 0.35,

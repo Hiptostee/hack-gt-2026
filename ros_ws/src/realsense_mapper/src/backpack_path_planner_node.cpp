@@ -43,6 +43,8 @@ public:
     inflation_radius_ = declare_parameter<double>("inflation_radius", 0.25);
     standoff_distance_ = declare_parameter<double>("standoff_distance", 0.70);
     max_prediction_age_ = declare_parameter<double>("max_prediction_age", 0.35);
+    const auto odometry_health_topic = declare_parameter<std::string>(
+      "odometry_health_topic", "/visual_odom");
     allow_unknown_ = declare_parameter<bool>("allow_unknown", true);
     preferred_clearance_ = declare_parameter<double>("preferred_clearance", 0.55);
     clearance_weight_ = declare_parameter<double>("clearance_weight", 2.0);
@@ -72,7 +74,7 @@ public:
       "/yolo/black_backpack", 10,
       std::bind(&BackpackPathPlanner::detection_callback, this, _1));
     visual_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/visual_odom", rclcpp::SensorDataQoS(),
+      odometry_health_topic, rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr) {
         last_visual_odom_ = std::chrono::steady_clock::now();
         have_visual_odom_ = true;

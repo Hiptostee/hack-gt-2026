@@ -7,22 +7,23 @@ natively on Ubuntu 24.04 or a Raspberry Pi.
 The stack includes:
 
 - Intel RealSense D415 driver
-- RTAB-Map RGB-D visual odometry and SLAM (C++)
+- OpenVINS visual-inertial odometry on the D415 color stream and external MPU6050
+- RTAB-Map RGB-D mapping and loop closure using the D415 depth stream
 - accumulated colored point cloud on `/rtabmap/cloud_map`
 - 2D occupancy grid on `/rtabmap/map`
 - YOLOX black-backpack detection on `/yolo/annotated_image`
 - heading-aware A* route to a detected backpack on `/backpack/path`
-- 60 Hz EKF stabilization between visual odometry updates
+- legacy RGB-D/ICP/EKF localization available as a fallback
 - RViz inside an XFCE desktop served by TigerVNC and noVNC
 - a small C++ status node that verifies both map outputs are arriving
 
-## Why RTAB-Map
+## Localization and mapping
 
-RTAB-Map is the standard ROS 2 RGB-D SLAM choice for this sensor. It performs
-visual odometry, loop closure, graph optimization, 3D cloud assembly, and 2D
-occupancy-grid generation in one maintained ROS package. The wearable camera
-uses 6-DoF visual odometry. The D415 has no IMU, so the camera should still
-begin approximately level for a useful 2D occupancy grid.
+On the Pi, OpenVINS estimates motion from D415 color frames and the external
+MPU6050. RTAB-Map consumes that odometry plus the existing aligned RGB-D streams
+for loop closure, 3D cloud assembly and the 2D occupancy grid. The D415 and its
+camera settings are unchanged. The older RGB-D/ICP odometry path remains
+available with `localization_backend:=rgbd` for comparison.
 
 ## Quick start
 
@@ -84,7 +85,10 @@ From a clone of this repository, run:
 ```bash
 ./scripts/setup-native-ubuntu.sh
 source ros_ws/install/setup.bash
-ros2 launch realsense_mapper hardware.launch.py
+ros2 launch realsense_mapper hardware.launch.py \
+  camera_profile:=640x480x15 openvins_calibration:=true enable_backpack_stack:=false
+ros2 launch realsense_mapper hardware.launch.py \
+  camera_profile:=640x480x15 enable_backpack_stack:=false
 ```
 
 To isolate camera, odometry, and SLAM performance on the Pi without running
@@ -94,75 +98,65 @@ YOLO detection or backpack path planning, launch with:
 ros2 launch realsense_mapper hardware.launch.py enable_backpack_stack:=false
 ```
 
-On compute-constrained Pi deployments, request synchronized 15 FPS streams so
-the camera does not produce frames faster than the mapping stack can consume:
+On compute-constrained Pi deployments, use synchronized 15 FPS streams:
 
 ```bash
 ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
-  odom_image_decimation:=2 \
   enable_backpack_stack:=false
 ```
 
-An MPU6050 at I2C address `0x68` can stabilize short-term rotation. The
-configured mounting transform assumes IMU X points up, Y points left, Z points
-backward, and the board is 4 cm left of `camera_link`. Install the
-filter and grant the login user access to I2C once, then log out and back in:
+The OpenVINS hardware launch expects the MPU6050 at I2C address `0x68`. The
+mounting estimate assumes IMU X points up, Y left, Z backward, and the board
+is 4 cm left of the camera center. Grant I2C access once and log out and back in:
 
 ```bash
-sudo apt install -y i2c-tools ros-jazzy-imu-filter-madgwick
+sudo apt install -y i2c-tools
 sudo usermod -aG i2c "$USER"
 ```
 
-Keep the rig completely still for the first five seconds after launching so
-the node can estimate gyro bias:
+Install OpenVINS in the workspace if you installed this project before the
+pivot (the current native setup script does this automatically):
+
+```bash
+cd ~/hack-gt-2026/ros_ws
+sudo apt install -y libeigen3-dev libboost-all-dev libceres-dev
+git clone --depth 1 https://github.com/nathanshankar/open_vins.git src/open_vins
+source /opt/ros/jazzy/setup.bash
+rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
+colcon build --symlink-install --packages-up-to ov_msckf realsense_mapper \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release -DENABLE_ARUCO_TAGS=OFF
+source install/setup.bash
+```
+
+First capture the D415's own color-camera intrinsics. This camera-only launch
+exits after writing `~/.ros/openvins_d415/`:
 
 ```bash
 ros2 launch realsense_mapper hardware.launch.py \
-  camera_profile:=640x480x15 \
-  odom_image_decimation:=1 \
-  enable_backpack_stack:=false \
-  enable_imu:=true \
-  enable_icp:=true
+  camera_profile:=640x480x15 openvins_calibration:=true enable_backpack_stack:=false
 ```
 
-The filter fuses gravity-referenced roll and pitch plus all gyro rates. It does
-not fuse absolute IMU yaw because the MPU6050 has no magnetometer. With ICP
-enabled, a downsampled D415 depth cloud is registered point-to-plane. ICP supplies
-the full pose; visual odometry supplies body-frame velocity, and the IMU supplies
-roll/pitch and gyro rates. This avoids blending two independently drifting
-position trajectories. The EKF reprocesses up to 0.6 seconds of delayed sensor
-data, and mapping limits image/odometry timestamp separation to 40 ms.
+Then restart for mapping, holding still through gyro calibration and
+OpenVINS initialization:
 
-ICP uses 5 cm voxels, a bounded 8,000-point local map, and a 20% minimum
-correspondence ratio. These are starting settings, not hardware-verified accuracy
-guarantees. If ICP processing consistently exceeds the 67 ms frame interval at
-15 FPS or delay keeps growing, add `icp_voxel_size:=0.08` to reduce load. Keep
-`odom_image_decimation:=1` initially to preserve visual features.
+```bash
+ros2 launch realsense_mapper hardware.launch.py \
+  camera_profile:=640x480x15 enable_backpack_stack:=false \
+  2>&1 | tee /tmp/slam-quality.log
+```
 
-Native RealSense cloud generation is disabled, including `pointcloud__neon_`
-on ARM, because enabling it caused a camera-process segmentation fault on the
-Pi. `rtabmap_util/point_cloud_xyz` projects aligned depth with color intrinsics,
-decimating by four in each dimension before publishing XYZ to `/icp/points`.
-Install `ros-jazzy-rtabmap-util` if upgrading an existing installation.
-Verify `ros2 topic info /icp/points` reports one publisher and
-`ros2 topic hz /icp_odom` receives messages before evaluating mapping quality.
-A topic listed only because ICP subscribes to it is not proof of cloud output.
-
-ICP predicts motion from its last successful registration and resets its local
-scan map after five consecutive failures. A reset is recovery from lost tracking,
-not a guarantee that the trajectory stayed accurate; repeated resets mean the
-depth geometry or registration still needs attention. An EKF cannot recover
-translation from the IMU alone while both odometry sources are lost. Start level
-and keep the rig still during gyro calibration so the relative IMU reference
-matches the initial odometry reference.
-
-For a repeatable check, hold still for 10 seconds after calibration, move slowly
-one metre and back, then turn slowly while viewing furniture or a room corner.
-Save the launch output with `2>&1 | tee /tmp/slam-quality.log` and inspect
-`ros2 topic hz /icp_odom` in a terminal with the same ROS/Zenoh environment.
-Compare drift, repeated surfaces, ICP correspondence ratios and processing
-delays against the previous run; a screenshot alone cannot validate accuracy.
+Check `ros2 topic hz /ov_msckf/poseimu`, `ros2 topic hz /odometry/filtered`,
+and `ros2 topic hz /rtabmap/map` from a second terminal. OpenVINS publishes no
+pose until visual-inertial initialization; keep the rig still at first, then
+move gently while viewing textured, static objects. The bridge stops forwarding
+IMU-only propagation if camera updates are stale. The generated camera–IMU
+extrinsics and IMU noise are **starting estimates**, not a true Kalibr
+calibration. An external MPU6050 is not hardware synchronized to the D415;
+precise camera–IMU calibration, time alignment and measured IMU noise remain
+necessary for trustworthy metric SLAM. Re-capture camera info if you change
+the camera resolution. OpenVINS VIO is local odometry, not loop closure; RTAB-Map
+still handles mapping and loop closures.
 
 The hardware launch file starts the D415 directly over USB. The installer adds
 ROS 2 Jazzy, installs package dependencies with `rosdep`,
@@ -205,10 +199,7 @@ export ZENOH_ROUTER_CHECK_ATTEMPTS=30
 unset ZENOH_CONFIG_OVERRIDE
 ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
-  odom_image_decimation:=1 \
-  enable_backpack_stack:=false \
-  enable_imu:=true \
-  enable_icp:=true
+  enable_backpack_stack:=false
 ```
 
 Find the Pi's numeric LAN address with `hostname -I`. Keep the Mac and Pi on
