@@ -4,6 +4,19 @@ This repository is a standard ROS 2 Jazzy workspace plus a reproducible Ubuntu
 24.04 test container for Docker Desktop on macOS. Hardware deployment runs
 natively on Ubuntu 24.04 or a Raspberry Pi.
 
+Current planning: [plan.md](plan.md) and the
+[hazard warning spec](ros_ws/src/hazard_warnings/specs.md) describe unfinished
+integration work. Audio hardware options are being explored: likely an open
+speaker for the hackathon demo, bone conduction for the product after it.
+The hazard-feedback target includes audio and tactile output; local audio comes
+first and tactile patterns remain brainstorming. Idle single tap repeats the
+last answer; thinking/speaking tap is planned to cancel without automatic repeat.
+Hold to talk/release to send and double tap for local spoken help/status are
+also decided. Help needs no internet and contacts no one; cloud-worker scheduling
+still needs integration work. Locator sound is removed from scope; legacy code
+still needs removal. The approved button mapping is in [companion/specs.md §2](companion/specs.md#2-interaction-model).
+The worn-camera coverage survey is a required task before capability claims.
+
 The stack includes:
 
 - Intel RealSense D415 driver

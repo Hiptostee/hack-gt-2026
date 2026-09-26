@@ -10,8 +10,14 @@
 On-device voice interface for the wearable spatial guide. Replaces the
 phone/browser companion prototype in `companion/`.
 
-Status: implemented and tested, 2026-09-26. 48 unit tests passing, web push-to-talk
-simulation and hardware selftest verified.
+Status: voice code exists; historical test results are recorded in `../log.md`.
+2026-09-26 planning update: idle single tap repeats; a tap while thinking or
+speaking cancels without automatic repeat; hold to talk and release to send is
+also decided, along with double tap for local help/status. Locator sound is
+removed from scope by user decision; legacy code still needs removal. Audio hardware
+options remain open, with an open speaker likely for the demo and bone conduction
+the future product direction. Planned hazard behavior is not implemented merely
+because it appears in this spec.
 
 --- 
 
@@ -44,7 +50,54 @@ how they interact.
 
 ## 2. Interaction model
 
-One physical button. Push-to-talk, walkie-talkie style.
+**DECIDED — hold to talk, release to send; idle single tap repeats; a tap while
+thinking or speaking cancels without automatic repeat; double tap opens local
+help/status. No locator sound or second-double-tap action.** One physical button
+is used. The table distinguishes approved behavior from existing code. Timing
+thresholds remain implementation settings to validate on hardware. All planning
+documents should refer to this shared decision record.
+
+| Gesture/context | Current code / baseline | Approved behavior / implementation gap |
+| --- | --- | --- |
+| Hold, then release | Record question, then send it with a camera image | DECIDED by user: hold to talk, release to send |
+| Single short press while idle | Repeat the last answer | DECIDED by user: repeat the last answer |
+| Tap while thinking/speaking | Invalidates answer and stops output; starts recording; short release can schedule repeat | DECIDED: cancel only, no automatic repeat; implementation fix required |
+| Double short press | Local help/status | DECIDED by user: local spoken help/status, no internet required and no contact action |
+| Another double tap | Legacy code starts locator within an armed window | Local help/status again; remove locator, arming state and locator prompts |
+| Triple short press | Not implemented | DECIDED by user: enter Guardian Voice (`guardian/specs.md` §2). Double-tap help waits up to one extra `DOUBLE_WINDOW` to rule out a third press; validate that delay |
+| Hazard detected | Intended automatic warning, no gesture | Automatic; no button activation needed |
+
+**DECIDED:** a single short press while idle repeats the last answer; it does
+not capture a new scene or ask Gemini again. With no previous answer, announce
+“There is nothing to repeat yet,” matching the existing code.
+
+**DECIDED:** a tap while thinking or speaking cancels the response and stops
+ordinary playback without automatically repeating. Classify this tap by the
+state at press time: its release must not become an idle-repeat action.
+Invalidate late answer/audio output and consume that tap without dispatching
+a new question. Cancellation need not wait for an outstanding network request
+to finish. This needs an implementation fix; documentation is not proof it
+works. A later separate idle tap can repeat the last answer.
+
+**DECIDED:** hold the button to record a spoken question, then release to send
+it with the camera image. This retains the existing push-to-talk interaction.
+Timing thresholds remain implementation settings to validate on hardware.
+
+**DECIDED:** double tap opens local spoken help/status. This action must work
+without internet, must not wait behind a cloud request and contacts no one.
+Report only known device status; unknown battery or other unavailable telemetry
+remains unknown. The existing worker scheduling still needs integration work.
+
+**REMOVED FROM SCOPE:** locator sound. Every recognized double tap has the
+same help/status meaning; there is no arming window or special second action.
+Remove legacy locator state, activation, prompts and locator-specific tests
+when implementing this mapping. Retain general audio/tone helpers used by
+hazard warnings. A repeated help request should replace/coalesce pending status
+work, not build a queue. The user selected repeat over a fresh scene description
+for idle tap.
+Do not silently change controls when hardware or network fails.
+
+### Timing and capture baseline (approved behavior above takes precedence)
 
 | Gesture | Behavior |
 | --- | --- |
@@ -98,15 +151,18 @@ structured field rather than matched by a local parser. See §5.
 | Compute | Raspberry Pi 5 (existing) | Shared with the ROS stack |
 | Button | Momentary push button on GPIO, internal pull-up | Debounce in software, 20 ms |
 | Microphone | USB mic | Zero-config ALSA; avoids I2S device-tree work |
-| Speaker | **Bone conduction transducer** | See below |
+| Speaker | Options being explored; likely open speaker for demo | Bone conduction is the post-hackathon product direction; see below |
 | Camera | RealSense, via existing ROS topic | No new camera handling |
 
-**Bone conduction is a real requirement, not a preference.** Blind and
-low-vision users rely heavily on ambient sound for spatial awareness and
-traffic. Occluding either ear with an earbud removes information they depend on
-and is a safety regression. If bone conduction hardware is unavailable for the
-demo, use a small open speaker — never in-ear or over-ear headphones, and say so
-explicitly in the demo.
+**Audio hardware remains exploratory.** We expect to use an open speaker for
+the hackathon demo and explore bone conduction for the actual product after
+the hackathon. Neither device is finalized or validated. Keeping ears open is
+the requirement; bone conduction is not a prerequisite for this demo. Compare
+availability, warning latency, audibility, comfort and ambient-sound access.
+
+**Camera task:** before wearable warning tests, complete the mounting/coverage
+survey in `../ros_ws/src/hazard_warnings/specs.md` §4. Confirm which floor,
+chest and head regions are visible and document blind zones and motion effects.
 
 **Audio capture format:** 16 kHz, mono, 16-bit PCM, written as WAV. Gemini
 downsamples audio to mono anyway, so capturing higher is wasted bytes. A 10 s
@@ -176,9 +232,13 @@ current companion already uses, adding a device action field:
 {
   "answer":        "string, spoken aloud, at most 3 short sentences",
   "landmark":      "string, empty unless a clear distinctive landmark is visible",
-  "device_action": "none | repeat | louder | quieter | stop | help | save_landmark"
+  "device_action": "none | repeat | louder | quieter | stop | help | save_landmark | guardian"
 }
 ```
+
+`guardian` is returned when the user asks for guardian mode or says they are
+lost and want help talking it through; it opens Guardian Voice
+([guardian/specs.md](guardian/specs.md) §2). Plain "help" stays `help`.
 
 Routing device actions through the model rather than a local keyword matcher
 means "say that again", "repeat", and "I didn't catch that" all work without
@@ -208,12 +268,12 @@ from a dead device.
 
 | Condition | Behavior |
 | --- | --- |
-| No network | Local TTS: "No network. Navigation is still working." |
+| No network | Local TTS: "Scene questions are unavailable without network." Report warning/navigation health independently. |
 | No recent camera frame | "I can't see anything right now — the camera isn't sending images." Do **not** answer from a stale frame. |
 | Gemini error / timeout | "I couldn't get an answer. Try again." Play error earcon first. |
 | ElevenLabs unavailable | Fall back to local TTS silently. The answer matters more than the voice. |
-| Audio output device missing at boot | Hard failure. Escalate to the haptic channel — a distinct ESP32 pattern — because a spoken error is useless with no speaker. |
-| Microphone missing at boot | Same as above. |
+| Audio output device missing at boot | Inhibit guidance and stop the supervised demo. An independent tactile fault signal is a future requirement; its pattern is currently brainstorming, not an available fallback. |
+| Microphone missing at boot | Announce voice-input failure through working local audio; retain automatic audio hazard warnings. No silent button remapping. |
 | Recording was empty/silent | "I didn't hear anything." |
 | Model expresses uncertainty | Pass it through verbatim. Never smooth uncertainty into confidence. |
 
@@ -225,13 +285,13 @@ network failure recoverable.
 
 ## 7. Help mode
 
-Double-press the button, or say "help". Opening Help contacts no one.
+**DECIDED:** double tap opens local spoken help/status, without internet or
+contacting anyone. Spoken "help" remains a separate cloud-interpreted baseline
+path; it is not the offline shortcut. Locator sound is removed from scope;
+repeat double taps remain help/status requests (§2).
 
 Available actions, all local:
 
-- **Locator sound** — loud pulsed tone from the device speaker, 15 s or until
-  the button is pressed. Helps a nearby person find the user, or the user find a
-  set-down device.
 - **Status** — spoken: battery, network reachability, camera freshness, whether
   Gemini is configured, and the outcome of the last cloud request.
 - **Last landmark** — the most recently observed landmark label with its
@@ -242,6 +302,11 @@ Available actions, all local:
 phone's `tel:`/`sms:` handlers, and this design has no phone. Adding them back
 needs either a cellular HAT on the Pi or a background companion phone app over
 Bluetooth. Recorded as future work; do not claim this capability in the demo.
+
+Help mode itself stays local and contacts no one. The separate, network-only
+Guardian Voice mode ([guardian/specs.md](guardian/specs.md)) adds an
+application-confirmed SMS to one configured contact via Twilio; it does not
+change this section.
 
 ---
 
@@ -254,7 +319,14 @@ and must never block them.
   alert while an answer is being read, duck or cut the speech. A scene
   description is never more important than a stair edge.
 - After a preemption, do not silently resume mid-sentence. Play a short tone;
-  the user can short-press to repeat from the start.
+  once idle and warnings allow it, a single short press repeats the last answer.
+  A tap during ordinary thinking/speaking cancels without automatic repeat (§2).
+  Urgent-hazard muting policy remains a separate interaction to review.
+- The product target is **audio and tactile hazard feedback**. Complete and
+  validate local audio first; tactile hazard patterns are brainstorming only.
+  Follow `../ros_ws/src/hazard_warnings/specs.md` for audio priority, expiry and
+  interruption in every state. Existing navigation servos do not establish
+  implemented tactile hazard or audio-failure feedback.
 - The Gemini path is network-bound, not CPU-bound, so it competes little with
   SLAM for CPU. Verify this holds under load — measure SLAM latency while
   requesting snapshots (this is already item 6 on the existing companion's
@@ -303,7 +375,10 @@ fallback demo if the voice path fails on the day.
 | Item | Status |
 | --- | --- |
 | Interactions API vs legacy `generateContent` | Decide at implementation; legacy is known-working |
-| Bone conduction hardware availability | Unverified — check inventory today |
+| Audio hardware | Exploring options; likely open speaker for demo, bone conduction for product after hackathon |
+| Button gesture mapping | Hold/release = ask; idle tap = repeat; thinking/speaking tap = cancel without repeat. Double tap = local help/status every time; locator removed. Mapping decided in §2; implementation/validation pending |
+| Camera mounting/coverage | Required task before wearable hazard claims; hazard spec §4 |
+| Tactile hazard feedback | Desired alongside audio; patterns/hardware exploratory, implement audio first |
 | ElevenLabs latency over venue wifi | Unmeasured; local TTS fallback is mandatory regardless |
 | Button placement on the wearable | Undecided — must be findable without sight, distinct from any other control |
 | Speech rate / voice selection | Undecided; blind users commonly prefer faster-than-default rates |
@@ -314,7 +389,8 @@ fallback demo if the voice path fails on the day.
 
 ## 12. Acceptance criteria
 
-The build is done when, on the actual Pi with the actual hardware:
+Verify the approved mapping on the actual Pi and selected demo audio hardware.
+These checks do not establish completion of the separate hazard spec.
 
 1. Holding the button, asking "what's in front of me", and releasing produces a
    spoken answer with the first word audible within 3 seconds.
@@ -327,9 +403,13 @@ The build is done when, on the actual Pi with the actual hardware:
 5. Stopping camera frames produces "I can't see anything right now" rather than
    an answer from a stale image.
 6. A hazard warning during playback cuts the speech.
-7. Short-pressing during playback stops it immediately.
+7. A tap during thinking/playback cancels without automatic repeat on release
+   or late answer playback. A separate idle tap repeats the last answer.
 8. Nothing in the interaction requires sight, touch precision beyond one button,
    or a second device.
+9. Double tap reports local help/status offline and while a cloud request is
+   blocked. Repeat it within the former 20-second window: it still reports
+   status, with no locator sound or locator prompt.
 
 Criterion 8 is the one that matters. Test it by running the whole demo
 blindfolded.

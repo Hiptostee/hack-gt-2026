@@ -9,6 +9,20 @@ Two front ends share this package:
 
 ## Voice companion
 
+Planning update: idle single tap repeats the last answer; thinking/speaking
+tap is decided as cancel without automatic repeat (code fix still needed).
+Hold to talk/release to send and double tap for local spoken help/status are
+also decided. Help needs no internet and contacts no one; cloud-worker scheduling
+still needs integration work. Locator sound is removed from scope; legacy code
+still needs removal. The approved button mapping is in
+[specs.md §2](specs.md#2-interaction-model); the commands/gestures below describe
+existing code. Audio hardware options remain exploratory: likely open speaker
+for the hackathon demo, bone conduction for the future product after it.
+Hazards should eventually use both audio and tactile feedback; implement local
+audio first and keep tactile patterns as brainstorming. Complete the camera
+coverage task in the [hazard spec](../ros_ws/src/hazard_warnings/specs.md) before
+wearable capability claims.
+
 ```bash
 pip3 install sounddevice numpy          # Pi also needs: sudo apt install libportaudio2
 sudo apt install espeak-ng              # local speech fallback (macOS uses `say`)
@@ -26,8 +40,11 @@ turn, `r` is a short press, `h` is a double press, `q` quits. Without `--ros`,
 `--image` supplies a static JPEG so the pipeline can be exercised off the robot.
 
 Hold the button to talk and release to send. A short press repeats the last
-answer, a press during playback interrupts it, and a double press opens help
-(status, then a second double press plays the locator sound). Help uses the
+answer, a press during playback interrupts it, and a double press opens help.
+**Legacy behavior pending removal:** a second double press can still start the
+locator sound; the approved plan removes this feature and makes every double
+tap report help/status. Cancel-on-release also still needs its planned fix.
+Help uses the
 local speech engine so it still works with no network.
 
 With `--ros`, the camera is shared with the independent YOLO and mapping nodes.
@@ -96,7 +113,7 @@ back through the tunnel to activate the ROS guidance gate on the Pi.
   - Streaming SSE: Responses use `:streamGenerateContent?alt=sse` with `answer` ordered first in the JSON schema, reducing time-to-first-token to ~0.58s.
   - Automatic image downscaling: Images >1024px are downscaled to ~100KB JPEG using Pillow, OpenCV, or macOS `sips` before transmission, cutting upload latency by ~95%.
 - `COMPANION_SPEECH_SPEED`: Playback speed factor for voice responses (default `1.15`, 15% faster). Supports ElevenLabs `voice_settings.speed` and local `say`/`espeak-ng`.
-- `--hazard-topic`: ROS 2 safety topic (default `/hazard_warning`). When an obstacle or drop-off alert arrives, active voice speech is cut off immediately and state resets to idle so the user can hear obstacle warnings.
+- `--hazard-topic`: ROS 2 topic (default `/hazard_warning`). Current handling only interrupts a busy companion and plays a stopped tone; payload-aware spoken warnings in every state are planned in the hazard spec, not implemented yet.
 
 ### Raspberry Pi Production Deployment Notes
 
@@ -228,7 +245,8 @@ its own explicit confirmation. The model has no tools that can activate them.
 - **Scene:** after confirmation, opens the native share sheet with one selected
   image and its time information. The user chooses the recipient and sends it.
   Location is not attached. Unsupported file-sharing browsers show an explanation.
-- **Locator:** plays a pulsed tone on the phone for 15 seconds or until stopped.
+- **Legacy locator (excluded from current product scope):** existing browser
+  code plays a pulsed tone on the phone for 15 seconds or until stopped.
   Phone volume, mute settings, connected headphones, and browser behavior affect
   audibility. This does not control an ESP32 buzzer or the Pi speaker.
 - **Status:** reports whether the wearable server is reachable, camera freshness,
