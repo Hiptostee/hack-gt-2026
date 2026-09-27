@@ -17,6 +17,7 @@ def generate_launch_description():
     camera_source = LaunchConfiguration("camera_source")
     camera_profile = LaunchConfiguration("camera_profile")
     enable_backpack_stack = LaunchConfiguration("enable_backpack_stack")
+    backpack_model_path = LaunchConfiguration("backpack_model_path")
     enable_companion_bridge = LaunchConfiguration("enable_companion_bridge")
     enable_mapping = LaunchConfiguration("enable_mapping")
     enable_imu = LaunchConfiguration("enable_imu")
@@ -130,6 +131,7 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_source", default_value="realsense"),
         DeclareLaunchArgument("camera_profile", default_value="640x480x15"),
         DeclareLaunchArgument("enable_backpack_stack", default_value="false"),
+        DeclareLaunchArgument("backpack_model_path", default_value="/opt/models/yolox.onnx"),
         DeclareLaunchArgument("enable_companion_bridge", default_value="true"),
         DeclareLaunchArgument("enable_mapping", default_value="false"),
         DeclareLaunchArgument("enable_imu", default_value="false"),
@@ -240,7 +242,7 @@ def generate_launch_description():
             output="screen",
             condition=IfCondition(enable_backpack_stack),
             parameters=[{
-                "model_path": "/opt/models/yolox.onnx",
+                "model_path": backpack_model_path,
                 "confidence_threshold": 0.18,
                 "nms_threshold": 0.45,
                 "max_inference_fps": 0.5,

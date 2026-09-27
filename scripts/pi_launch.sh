@@ -53,18 +53,58 @@ fi
 
 launch_args=(camera_profile:=640x480x15)
 mapping_arg_present=false
+backpack_arg_present=false
+backpack_enabled=true
+model_arg_present=false
+model_path=""
 for arg in "$@"; do
-  if [[ "$arg" == enable_mapping:=* ]]; then
-    mapping_arg_present=true
-    break
-  fi
+  case "$arg" in
+    enable_mapping:=*) mapping_arg_present=true ;;
+    enable_backpack_stack:=*)
+      backpack_arg_present=true
+      backpack_enabled="${arg#enable_backpack_stack:=}"
+      ;;
+    backpack_model_path:=*)
+      model_arg_present=true
+      model_path="${arg#backpack_model_path:=}"
+      ;;
+  esac
 done
 if [[ "$mapping_arg_present" == false ]]; then
   launch_args+=(enable_mapping:=true)
 fi
+if [[ "$backpack_arg_present" == false ]]; then
+  launch_args+=(enable_backpack_stack:=true)
+fi
+if [[ "$backpack_enabled" == true || "$backpack_enabled" == 1 ]]; then
+  if [[ "$model_arg_present" == false ]]; then
+    if [[ -s /opt/models/yolox.onnx ]]; then
+      model_path=/opt/models/yolox.onnx
+    else
+      model_path="${repo_root}/data/models/yolox.onnx"
+      if [[ ! -s "$model_path" ]]; then
+        mkdir -p "${repo_root}/data/models"
+        model_tmp="${model_path}.part.$$"
+        echo "Downloading YOLOX model to ${model_path} (one-time setup)..."
+        if ! curl -fL --retry 3 \
+          'https://huggingface.co/opencv/object_detection_yolox/resolve/main/object_detection_yolox_2022nov.onnx?download=true' \
+          -o "$model_tmp"; then
+          rm -f "$model_tmp"
+          echo "YOLOX download failed. Retry when the Pi has internet, or pass backpack_model_path:=PATH." >&2
+          exit 1
+        fi
+        mv "$model_tmp" "$model_path"
+      fi
+    fi
+    launch_args+=("backpack_model_path:=${model_path}")
+  elif [[ ! -s "$model_path" ]]; then
+    echo "YOLOX model not found at ${model_path}." >&2
+    exit 1
+  fi
+fi
 launch_args+=("$@")
 
-echo "Starting camera, RGB-D odometry, mapping, and Pi bridge (IMU, ICP, and backpack stack opt-in)..."
+echo "Starting camera, RGB-D odometry, Pi bridge, and requested mapping/backpack services (IMU and ICP opt-in)..."
 ros2 launch realsense_mapper hardware.launch.py "${launch_args[@]}" &
 mapping_pid=$!
 wait -n "$router_pid" "$mapping_pid" || true

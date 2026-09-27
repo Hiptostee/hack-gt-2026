@@ -84,7 +84,7 @@ workspace after pulling updates (`cd ros_ws && colcon build --packages-select
 realsense_mapper && cd ..`). The Pi does not need a Gemini key:
 
 ```bash
-./scripts/pi_launch.sh enable_mapping:=true enable_backpack_stack:=true
+./scripts/pi_launch.sh
 ```
 
 Run one command on the laptop from the repository root:
