@@ -25,6 +25,27 @@ coverage requirements are met. No semantic object labels or floor hazards are
 inferred. Tests cover phrase translation, stale suppression, repeat limiting,
 audio ownership and simulated-vs-live behavior.
 
+## Beacon presentation alignment (2026-09-27)
+
+Use the root design brief and HTML presentation as the visual reference: near-black
+surfaces, cyan/blue light, geometric Beacon branding, Montserrat headings, Inter
+controls and monospace telemetry. Adapt to responsive operator use rather than a
+fixed slide stage. Camera/object selection and voice interaction form the main
+workspace; warnings, guidance, hands and Guardian remain visible in telemetry.
+Keep Stop in the persistent header. Put display-only simulation in a disclosure.
+
+Preserve all existing DOM IDs, endpoints, Find/inspect/fresh-frame Guide, selection
+expiry, heartbeat, audio ownership, and obstacle-warning controls from `7bb041f`.
+No backend, hardware, cloud or dependency changes. Unknown/stale sensing is amber;
+red is reserved for observed or explicitly simulated hazards. Unmeasured values
+stay unmeasured. Simulation remains visibly labelled even with controls collapsed.
+
+Acceptance: both dashboard URLs share the new design; all controls remain reachable
+with keyboard and at narrow widths; focus is visible; reduced motion is respected;
+existing dashboard/demo/warning tests pass. Browser review covers responsive layout,
+missing telemetry, view switching and simulation. Hardware validation remains a
+separate requirement, with no new live sensing or performance claims.
+
 ## Unified operator dashboard (2026-09-27)
 
 The existing dashboard design becomes the single judging/operator interface at

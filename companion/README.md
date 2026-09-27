@@ -1,5 +1,12 @@
 # Scene and help companion
 
+The dashboard uses Beacon's presentation branding in a responsive workspace:
+Perception contains camera/radar and Find → inspect → Guide; Voice contains
+questions and microphone controls. Stop stays in the header. Obstacle-warning
+audio is beside its sensing status in Telemetry. Expand **Demo simulator** for
+labelled test scenarios, or select **Console** for diagnostics. Source labels and
+unmeasured readings remain visible; simulated hazards are explicitly labelled.
+
 ## Laptop demo (2026-09-27)
 
 Use the [Beacon runbook](../docs/Beacon-Laptop-Demo.md) for the integrated demo.

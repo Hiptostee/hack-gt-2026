@@ -566,288 +566,272 @@ PAGE = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Beacon — Live Dashboard</title>
-<meta name="description" content="Push-to-talk debug interface simulating the Raspberry Pi voice companion">
+<meta name="description" content="Beacon spatial guide — live camera, voice, object guidance and device telemetry">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#06060b;--bg2:#0d0d14;--card:rgba(255,255,255,0.03);
-  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.12);
-  --text:#e0e0e6;--dim:#5a5a64;--dim2:#3a3a44;
-  --accent:#4ecdc4;--accent2:#3bb8b0;--accent-g:rgba(78,205,196,0.25);
-  --rec:#ff6b6b;--rec-g:rgba(255,107,107,0.35);
-  --think:#ffd93d;--think-g:rgba(255,217,61,0.25);
-  --pass:#4ecdc4;--fail:#ff6b6b;--warn:#ffd93d;--info:#8e8e93;
-  --r:12px;--font:'Inter',system-ui,sans-serif;
-  --mono:'JetBrains Mono','SF Mono',monospace;
+  color-scheme:dark;
+  --bg:#05070A;--bg2:#0B1017;--card:#0B1017;
+  --border:#1A2533;--border2:#34485e;--text:#FFFFFF;--dim:#8FA3B8;--dim2:#74899e;
+  --accent:#35D7FF;--accent2:#168BFF;--accent-g:rgba(53,215,255,.18);
+  --rec:#35D7FF;--rec-g:rgba(53,215,255,.2);
+  --think:#FFB020;--think-g:rgba(255,176,32,.18);
+  --pass:#3DFFB0;--fail:#FFB020;--warn:#FFB020;--hazard:#FF4D4D;--info:#8FA3B8;
+  --r:8px;--font:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --display:'Montserrat',var(--font);--mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
 }
-html,body{height:100%}
-body{
-  font-family:var(--font);background:var(--bg);color:var(--text);
-  display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto 1fr;
-  gap:0;height:100vh;overflow:hidden;
-}
-@media(max-width:900px){body{grid-template-columns:1fr;grid-template-rows:auto auto 1fr;overflow:auto}}
-
-/* ---- header ---- */
-header{
-  grid-column:1/-1;padding:.8rem 1.2rem;
-  border-bottom:1px solid var(--border);
-  display:flex;align-items:center;gap:1rem;
-  background:var(--bg2);
-}
-header h1{
-  font-size:1.05rem;font-weight:600;letter-spacing:-.01em;
-  background:linear-gradient(135deg,var(--accent),#8b5cf6);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-}
-header .tag{
-  font-size:.65rem;padding:2px 8px;border-radius:6px;
-  border:1px solid var(--border2);color:var(--dim);
-  font-family:var(--mono);
-}
-.header-actions{margin-left:auto;display:flex;align-items:center;gap:.8rem}
-.sound-test-btn{
-  background:rgba(78,205,196,0.1);border:1px solid var(--accent);
-  color:var(--accent);font-size:.7rem;padding:3px 10px;border-radius:6px;
-  cursor:pointer;font-family:var(--mono);transition:all .15s;
-}
-.sound-test-btn:hover{background:var(--accent);color:#06060b}
-.header-dots{display:flex;gap:.5rem;align-items:center}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--dim2);transition:background .2s}
-.dot.ok{background:var(--pass);box-shadow:0 0 6px var(--pass)}
-.dot.err{background:var(--fail)}
-.dot-label{font-size:.65rem;color:var(--dim);font-family:var(--mono);margin-right:.25rem}
-
-/* ---- left: interaction ---- */
-.interact{
-  display:flex;flex-direction:column;align-items:center;
-  padding:1.4rem 1rem;overflow-y:auto;
-  border-right:1px solid var(--border);
-}
-@media(max-width:900px){.interact{border-right:none;border-bottom:1px solid var(--border);padding:1rem}}
-
-.cam{
-  width:100%;max-width:420px;aspect-ratio:4/3;border-radius:var(--r);
-  overflow:hidden;border:1px solid var(--border);background:#0a0a0f;
-  position:relative;margin-bottom:1.1rem;
-}
-.cam video,.cam img{width:100%;height:100%;object-fit:cover;display:block}
-.target-view{width:100%;border-radius:8px;display:block}
-.cam-tag{
-  position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);
-  backdrop-filter:blur(6px);padding:2px 8px;border-radius:6px;
-  font-size:.62rem;color:#aaa;text-transform:uppercase;letter-spacing:.05em;
-  font-family:var(--mono);
-}
-.meter-wrap{position:absolute;bottom:0;left:0;right:0;height:3px;background:rgba(0,0,0,.4)}
-.meter-bar{height:100%;width:0%;background:var(--rec);transition:width 50ms}
-
-/* audio destination options */
-.audio-bar{
-  width:100%;max-width:420px;display:flex;justify-content:space-between;align-items:center;
-  background:rgba(255,255,255,0.02);border:1px solid var(--border);
-  border-radius:8px;padding:6px 12px;margin-bottom:1.1rem;font-size:.72rem;color:var(--dim);
-}
-.audio-bar label{display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
-.audio-bar input[type="checkbox"]{accent-color:var(--accent);cursor:pointer}
-
-.btn-area{display:flex;flex-direction:column;align-items:center;gap:.6rem;margin-bottom:1.2rem}
-.talk{
-  width:82px;height:82px;border-radius:50%;border:2px solid var(--accent);
-  background:var(--card);color:var(--accent);cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-  transition:all .2s;-webkit-user-select:none;user-select:none;touch-action:none;outline:none;
-}
-.talk:hover{background:rgba(78,205,196,.1);box-shadow:0 0 25px var(--accent-g)}
-.talk.rec{border-color:var(--rec);color:var(--rec);background:rgba(255,107,107,.08);box-shadow:0 0 35px var(--rec-g);animation:pulse-r 1.4s ease-in-out infinite}
-.talk.think{border-color:var(--think);color:var(--think);background:rgba(255,217,61,.08);box-shadow:0 0 25px var(--think-g);animation:pulse-t 1.8s ease-in-out infinite;pointer-events:none}
-@keyframes pulse-r{0%,100%{transform:scale(1);box-shadow:0 0 24px var(--rec-g)}50%{transform:scale(1.06);box-shadow:0 0 44px var(--rec-g)}}
-@keyframes pulse-t{0%,100%{box-shadow:0 0 16px var(--think-g)}50%{box-shadow:0 0 32px var(--think-g)}}
-.talk svg{width:30px;height:30px;fill:currentColor}
+body{font:14px/1.5 var(--font);background:var(--bg);color:var(--text);min-height:100vh;
+  background-image:radial-gradient(ellipse at 20% 0%,rgba(22,139,255,.09),transparent 45%),linear-gradient(rgba(26,37,51,.22) 1px,transparent 1px),linear-gradient(90deg,rgba(26,37,51,.22) 1px,transparent 1px);background-size:auto,48px 48px,48px 48px}
+button,input,summary{font:inherit}
+button,summary{cursor:pointer}
+button{transition:background .18s,border-color .18s,color .18s}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:not(:disabled):hover{border-color:var(--accent);background:rgba(53,215,255,.08)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+input::placeholder{color:var(--dim)}
+[hidden]{display:none!important}
+svg{display:block}
+button svg{width:20px;height:20px}
+small{font-size:12px;line-height:1.6;color:var(--dim)}
+header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:24px;min-height:82px;padding:14px 32px;background:var(--bg);border-bottom:1px solid var(--border)}
+.brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.brand-mark{width:50px;height:50px}
+.brand h1{line-height:1}
+.brand-word{width:136px;height:24px}
+.brand-caption{font:10px var(--mono);letter-spacing:.2em;color:var(--dim);margin-top:9px;text-transform:uppercase}
+.header-actions{margin-left:auto;display:flex;align-items:center;gap:18px}
+.header-dots{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--dim2)}
+.dot.ok{background:var(--pass);box-shadow:0 0 8px rgba(61,255,176,.35)}
+.dot.err{background:var(--warn)}
+.dot-label{font:10px var(--mono);color:var(--dim);margin-left:5px}
+.lang-selector{display:flex;gap:2px;padding:3px;border:1px solid var(--border);border-radius:6px}
+.lang-btn{background:transparent;border:1px solid transparent;color:var(--dim);font:11px var(--mono);padding:7px;border-radius:3px;min-height:32px}
+.lang-btn.active{color:var(--accent);background:rgba(53,215,255,.09);border-color:var(--border2)}
+.sound-test-btn,.clear-btn,.replay-btn{border:1px solid var(--border2);border-radius:4px;color:var(--dim);background:transparent;padding:8px 12px;font:11px var(--mono);min-height:36px}
+.sound-test-btn{display:flex;gap:8px;align-items:center}
+.workspace-intro{max-width:1800px;margin:auto;padding:32px 32px 24px;display:flex;justify-content:space-between;align-items:end;gap:20px}
+.eyebrow{font:10px var(--mono);letter-spacing:.17em;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.eyebrow:before{content:'';width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:7px solid var(--accent)}
+.workspace-intro h2{font:700 clamp(24px,2.8vw,40px)/1.2 var(--display);letter-spacing:-.035em}
+.workspace-intro h2 span{color:var(--accent)}
+.intro-note{max-width:300px;text-align:right;font-size:12px;color:var(--dim)}
+.workspace{max-width:1800px;margin:auto;padding:0 32px 32px;display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:22px;align-items:start}
+.interact{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,1fr);gap:22px;min-width:0}
+.scene-column,.voice-column{min-width:0}
+.section-heading{font:600 12px var(--display);letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.section-heading .section-number{font:11px var(--mono);color:var(--accent)}
+.section-heading .section-note{margin-left:auto;color:var(--dim);font:10px var(--mono);letter-spacing:.03em;text-transform:none}
+.cam-toggle-row{display:flex;border:1px solid var(--border);border-bottom:0;border-radius:8px 8px 0 0;padding:5px;gap:4px;background:var(--bg2)}
+.cam-tab-btn{flex:1;background:none;border:1px solid transparent;border-radius:4px;padding:8px 4px;color:var(--dim);font:11px var(--mono);min-height:38px}
+.cam-tab-btn.active{color:var(--accent);border-color:var(--border2);background:rgba(53,215,255,.06)}
+.cam{width:100%;aspect-ratio:4/3;position:relative;background:radial-gradient(circle at center,rgba(22,139,255,.07),transparent 70%),var(--bg);border:1px solid var(--border);border-radius:0 0 8px 8px;overflow:hidden}
+.cam:after{content:'';position:absolute;inset:12px;border:1px solid rgba(53,215,255,.2);clip-path:polygon(0 0,20px 0,20px 1px,1px 1px,1px 20px,0 20px,0 0,100% 0,100% 20px,calc(100% - 1px) 20px,calc(100% - 1px) 1px,calc(100% - 20px) 1px,calc(100% - 20px) 0,100% 0,100% 100%,calc(100% - 20px) 100%,calc(100% - 20px) calc(100% - 1px),calc(100% - 1px) calc(100% - 1px),calc(100% - 1px) calc(100% - 20px),100% calc(100% - 20px),100% 100%,0 100%,0 calc(100% - 20px),1px calc(100% - 20px),1px calc(100% - 1px),20px calc(100% - 1px),20px 100%,0 100%);pointer-events:none}
+.cam video,.cam img{width:100%;height:100%;object-fit:contain;display:block;position:relative;z-index:1}
+.cam canvas{position:relative;z-index:1}
+.camera-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--dim);font:10px var(--mono);letter-spacing:.1em}
+.camera-empty svg{width:76px;height:76px;color:var(--accent);opacity:.5}
+.cam-tag{position:absolute;top:20px;left:20px;z-index:2;padding:4px 8px;border:1px solid var(--border);background:var(--bg);font:10px var(--mono);color:var(--dim)}
+.meter-wrap{position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--border);z-index:2}
+.meter-bar{height:100%;width:0;background:var(--accent);transition:width 50ms}
+.object-workflow{margin-top:18px;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:var(--r)}
+.workflow-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.workflow-title h2{font:600 16px var(--display);letter-spacing:-.02em}
+.workflow-steps{display:flex;gap:8px;margin:18px 0;color:var(--dim);font:10px var(--mono)}
+.workflow-steps span{flex:1;padding:7px 0;border-bottom:2px solid var(--border)}
+.workflow-steps .current{color:var(--accent);border-color:var(--accent)}
+.object-workflow p{color:var(--dim);font-size:12px;line-height:1.6;margin:12px 0}
+.target-view{width:100%;border-radius:4px;display:block}
+#object-preview{max-height:250px;object-fit:contain;background:var(--bg)}
+.operator-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}
+.operator-row input{flex:1;min-width:100px;width:0;border:1px solid var(--border2);border-radius:4px;background:var(--bg);color:var(--text);padding:11px 12px;font-size:12px;min-height:42px}
+.operator-btn{border:1px solid var(--border2);border-radius:4px;background:transparent;color:var(--text);padding:10px 12px;font-size:12px;min-height:40px}
+.operator-btn.primary{background:rgba(53,215,255,.08);border-color:rgba(53,215,255,.4);color:var(--accent)}
+.operator-btn.danger{color:var(--text);border-color:var(--border2)}
+#stop-all{font:500 11px var(--mono);white-space:nowrap;border-color:var(--dim);display:flex;align-items:center;gap:8px}
+#stop-all:before{content:'';width:8px;height:8px;background:currentColor}
+#find-object,#ask-typed{color:var(--bg);background:var(--accent);border-color:var(--accent);font-weight:600}
+#find-object:hover,#ask-typed:hover{background:#91eaff}
+.voice-surface{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:20px}
+.voice-invitation{font:600 22px/1.3 var(--display);letter-spacing:-.03em}
+.voice-subtitle{color:var(--dim);font-size:12px;margin-top:8px}
+.btn-area{display:flex;flex-direction:column;align-items:center;gap:12px;padding:32px 0 12px}
+.talk{position:relative;width:86px;height:86px;border-radius:50%;border:1px solid var(--accent);color:var(--accent);background:radial-gradient(circle,rgba(53,215,255,.12),transparent);display:flex;align-items:center;justify-content:center;user-select:none;touch-action:none;box-shadow:0 0 0 10px rgba(53,215,255,.025),0 0 0 11px rgba(53,215,255,.06)}
+.talk svg{width:28px;height:28px;fill:currentColor}
+.talk.rec{background:rgba(53,215,255,.15);animation:breathe 1.6s ease-in-out infinite}
+.talk.think{color:var(--think);border-color:var(--think)}
 .talk .spin{display:none}
 .talk.think svg.mic{display:none}
-.talk.think .spin{display:block;width:26px;height:26px;border:2.5px solid var(--think);border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite}
-@keyframes sp{to{transform:rotate(360deg)}}
-.status-text{font-size:.82rem;color:#8e8e93;text-align:center;font-weight:400}
-.rec-timer{font-family:var(--mono);font-size:.72rem;color:var(--dim);font-variant-numeric:tabular-nums;min-height:1.1em}
-
-/* ---- response card ---- */
-.resp{
-  width:100%;max-width:420px;background:var(--card);
-  border:1px solid var(--border);border-radius:var(--r);padding:1.1rem;
-  opacity:0;transform:translateY(6px);transition:all .3s ease;pointer-events:none;
+.talk.think .spin{display:block;width:26px;height:26px;border:2px solid var(--think);border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}
 }
-.resp.vis{opacity:1;transform:translateY(0);pointer-events:auto}
-.resp .f{margin-bottom:.8rem}
-.resp .f:last-child{margin-bottom:0}
-.resp label{display:block;font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:.25rem;font-family:var(--mono)}
-.resp p{font-size:.9rem;line-height:1.45}
-.resp .lm{color:var(--accent);font-size:.84rem}
-.resp .timings{display:flex;gap:.6rem;flex-wrap:wrap}
-.resp .timings span{font-family:var(--mono);font-size:.7rem;color:var(--dim);padding:2px 7px;background:rgba(255,255,255,.03);border-radius:5px;border:1px solid var(--border)}
-.resp .timings span b{color:var(--text);font-weight:500}
-
-/* audio player in response */
-.audio-player-row{
-  display:flex;align-items:center;gap:.6rem;margin-top:.3rem;
+@keyframes breathe{50%{transform:scale(1.04)}
 }
-.audio-player-row audio{
-  flex:1;height:32px;filter:invert(0.9) hue-rotate(180deg);
+.status-text{font-size:12px;color:var(--dim);text-align:center;overflow-wrap:anywhere}
+.rec-timer{font:11px var(--mono);color:var(--accent);min-height:16px}
+.operator-controls small{display:block}
+.audio-bar{display:flex;flex-wrap:wrap;gap:12px;border-top:1px solid var(--border);padding-top:16px;margin-top:20px;font-size:11px;color:var(--dim)}
+.audio-bar label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.audio-bar input{accent-color:var(--accent)}
+.resp{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-top:18px;display:none}
+.resp.vis{display:block;animation:reveal .25s ease-out}
+@keyframes reveal{from{opacity:0;transform:translateY(4px)}
+to{opacity:1;transform:translateY(0)}
 }
-.replay-btn{
-  background:rgba(78,205,196,0.12);border:1px solid var(--accent);
-  color:var(--accent);font-size:.72rem;padding:5px 12px;border-radius:6px;
-  cursor:pointer;font-family:var(--mono);transition:all .15s;white-space:nowrap;
-}
-.replay-btn:hover{background:var(--accent);color:#06060b}
-.audio-status{font-size:.72rem;color:var(--dim);margin-top:.4rem;font-family:var(--mono)}
-
-/* ---- right: debug log ---- */
-.debug{
-  display:flex;flex-direction:column;background:var(--bg2);overflow:hidden;
-}
-.debug-header{
-  padding:.7rem 1rem;border-bottom:1px solid var(--border);
-  font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);
-  font-family:var(--mono);display:flex;align-items:center;gap:.6rem;
-}
-.debug-header .clear-btn{
-  margin-left:auto;background:none;border:1px solid var(--border);
-  color:var(--dim);font-size:.62rem;padding:2px 8px;border-radius:5px;
-  cursor:pointer;font-family:var(--mono);
-}
-.debug-header .clear-btn:hover{border-color:var(--border2);color:var(--text)}
-.log-scroll{flex:1;overflow-y:auto;padding:.5rem 0}
-.log-line{
-  padding:2px 1rem;font-family:var(--mono);font-size:.72rem;line-height:1.7;
-  display:flex;gap:.6rem;
-}
-.log-line:hover{background:rgba(255,255,255,.02)}
-.log-t{color:var(--dim2);min-width:48px;text-align:right;flex-shrink:0}
-.log-tag{min-width:36px;text-align:center;flex-shrink:0;font-weight:500;border-radius:3px;padding:0 4px}
-.log-tag.pass{color:var(--pass)}
-.log-tag.fail{color:var(--fail)}
-.log-tag.warn{color:var(--warn)}
-.log-tag.info{color:var(--info)}
-.log-msg{color:var(--text);word-break:break-word}
-.log-msg.fail{color:var(--fail)}
-.log-msg.warn{color:var(--warn)}
-.log-line.fail-line{background:rgba(255,107,107,.05)}
-
-/* ---- HUD Tabs & Layout ---- */
-.hud-tabs{display:flex;gap:4px;background:rgba(255,255,255,0.04);padding:2px;border-radius:8px;border:1px solid var(--border)}
-.hud-tab{background:none;border:none;color:var(--dim);font-size:.68rem;padding:4px 10px;border-radius:6px;cursor:pointer;font-family:var(--mono);transition:all .15s}
-.hud-tab.active{background:rgba(78,205,196,0.15);color:var(--accent);border:1px solid var(--accent-g)}
-.hud-panel{flex:1;overflow-y:auto;padding:.9rem;display:flex;flex-direction:column;gap:.9rem}
-
-.hud-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:.85rem}
-.hud-card-title{font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:.6rem;font-family:var(--mono);display:flex;justify-content:space-between;align-items:center}
-.hud-pill{font-size:.6rem;padding:2px 6px;border-radius:4px;font-family:var(--mono);text-transform:uppercase;font-weight:600}
-.hud-pill.ok{background:rgba(78,205,196,0.15);color:var(--pass);border:1px solid var(--pass)}
-.hud-pill.warn{background:rgba(255,217,61,0.15);color:var(--warn);border:1px solid var(--warn)}
-.hud-pill.alert{background:rgba(255,107,107,0.18);color:var(--fail);border:1px solid var(--fail)}
-.hud-pill.idle{background:rgba(255,255,255,0.05);color:var(--dim);border:1px solid var(--border)}
-
-/* Tactile Hands Visualizer */
-.hands-grid{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
-.hand-box{background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;padding:.6rem;text-align:center;position:relative}
-.hand-label{font-size:.65rem;color:var(--dim);font-family:var(--mono);margin-bottom:.4rem;text-transform:uppercase}
-.hand-svg{width:64px;height:64px;margin:0 auto}
-.hand-arm{transform-origin:32px 32px;transition:transform .2s ease-out}
+.resp .f{margin-bottom:16px}
+.resp .f:last-child{margin:0}
+.resp label{display:block;font:10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+.resp p{font-size:14px;line-height:1.65;overflow-wrap:anywhere}
+.resp .lm{color:var(--accent)}
+.timings{display:flex;flex-wrap:wrap;gap:6px}
+.timings span{font:10px var(--mono);padding:4px 6px;color:var(--dim);border:1px solid var(--border)}
+.timings b{color:var(--text);font-weight:400}
+.audio-player-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.audio-player-row audio{width:100%;min-width:0;height:36px}
+.audio-status{font:11px var(--mono);color:var(--dim);margin-top:8px}
+.debug{min-width:0;padding-left:22px;border-left:1px solid var(--border)}
+.debug-header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:16px}
+.hud-tabs{display:flex;gap:12px}
+.hud-tab{border:0;border-bottom:2px solid transparent;background:none;color:var(--dim);padding:0 0 8px;font:600 11px var(--display);letter-spacing:.07em;text-transform:uppercase}
+.hud-tab.active{color:var(--text);border-color:var(--accent)}
+.hud-panel{display:flex;flex-direction:column;gap:14px}
+.hud-card{padding:18px;background:var(--card);border:1px solid var(--border);border-radius:var(--r)}
+.hud-card-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;color:var(--dim);font:10px/1.6 var(--mono);letter-spacing:.07em;text-transform:uppercase}
+.hud-pill{display:inline-block;flex-shrink:0;padding:3px 6px;font:9px/1.5 var(--mono);letter-spacing:.015em;border:1px solid var(--border);border-radius:3px}
+.hud-pill.idle{color:var(--dim)}
+.hud-pill.ok{color:var(--pass);border-color:rgba(61,255,176,.3);background:rgba(61,255,176,.04)}
+.hud-pill.warn,.hud-pill.alert{color:var(--warn);border-color:rgba(255,176,32,.35);background:rgba(255,176,32,.04)}
+.vitals-strip{display:flex;flex-wrap:wrap;gap:10px;padding:14px;border:1px solid var(--border);border-radius:var(--r);font:9px/1.6 var(--mono);background:var(--bg2)}
+.vital-item{display:flex;gap:5px}
+.vital-k{color:var(--dim)}
+.vital-v{color:var(--text)}
+.vital-pill{width:100%;color:var(--dim);border-top:1px solid var(--border);padding-top:8px;font-size:9px}
+.vital-pill.ok{color:var(--pass)}
+.vital-pill.alert{color:var(--warn)}
+.dir-heading{display:flex;align-items:center;gap:14px}
+.dir-icon{display:flex;align-items:center;justify-content:center;width:46px;height:46px;flex-shrink:0;border:1px solid var(--border);border-radius:4px;font-size:26px;color:var(--dim)}
+.dir-icon.forward,.dir-icon.turn{color:var(--accent);border-color:var(--accent)}
+.dir-icon.stop{color:var(--warn);border-color:var(--warn)}
+.dir-title{font:600 14px var(--display)}
+.dir-sub{font:10px/1.6 var(--mono);color:var(--dim);margin-top:6px}
+.hands-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hand-box{padding:12px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);text-align:center}
+.hand-label{font:9px var(--mono);color:var(--dim);margin-bottom:10px}
+.hand-svg{width:58px;height:58px;margin:auto}
+.hand-arm{transform-origin:32px 32px;transition:transform .2s}
+.hand-box.active{border-color:var(--accent)}
 .hand-box.active .hand-arm{animation:servo-sweep .5s ease-in-out infinite alternate}
-@keyframes servo-sweep{0%{transform:rotate(-25deg)}100%{transform:rotate(25deg)}}
-.hand-state-text{font-size:.72rem;font-weight:600;font-family:var(--mono);margin-top:.3rem;color:var(--dim)}
+@keyframes servo-sweep{from{transform:rotate(-25deg)}
+to{transform:rotate(25deg)}
+}
+.hand-state-text{font:10px var(--mono);color:var(--dim);margin-top:10px}
 .hand-box.active .hand-state-text{color:var(--accent)}
-
-/* Direction Heading */
-.dir-heading{display:flex;align-items:center;gap:.9rem;padding:.4rem 0}
-.dir-icon{width:46px;height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:700;border:1px solid var(--border);background:rgba(255,255,255,0.02)}
-.dir-icon.forward{color:var(--accent);border-color:var(--accent);box-shadow:0 0 15px var(--accent-g)}
-.dir-icon.turn{color:#38bdf8;border-color:#38bdf8;box-shadow:0 0 15px rgba(56,189,248,0.25)}
-.dir-icon.stop{color:var(--rec);border-color:var(--rec);box-shadow:0 0 15px var(--rec-g)}
-.dir-icon.idle{color:var(--dim2);border-color:var(--border)}
-.dir-details{flex:1}
-.dir-title{font-size:.95rem;font-weight:600;color:var(--text);letter-spacing:-.01em}
-.dir-sub{font-size:.7rem;color:var(--dim);font-family:var(--mono);margin-top:2px}
-
-/* Hazard Alert Banner */
-.hazard-card{transition:all .25s ease}
-.hazard-card.urgent{border-color:var(--fail);background:rgba(255,107,107,0.08);box-shadow:0 0 20px var(--rec-g)}
-.hazard-card.caution{border-color:var(--warn);background:rgba(255,217,61,0.06);box-shadow:0 0 15px var(--think-g)}
-.hazard-card.clear{border-color:rgba(78,205,196,0.3)}
-.hazard-msg{font-size:.82rem;font-weight:500;line-height:1.4;margin:.3rem 0}
-
-/* Telemetry Health Grid */
-.telemetry-row{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
-.tele-cell{background:rgba(0,0,0,0.2);padding:6px 8px;border-radius:6px;border:1px solid var(--border)}
-.tele-k{font-size:.58rem;color:var(--dim);font-family:var(--mono);text-transform:uppercase}
-.tele-v{font-size:.72rem;font-weight:500;color:var(--text);font-family:var(--mono);margin-top:2px}
-
-/* Language Selector */
-.lang-selector{display:flex;gap:3px;background:rgba(255,255,255,0.04);padding:2px;border-radius:8px;border:1px solid var(--border)}
-.lang-btn{background:none;border:none;color:var(--dim);font-size:.65rem;padding:3px 7px;border-radius:6px;cursor:pointer;font-family:var(--mono);transition:all .15s}
-.lang-btn:hover{color:var(--text);background:rgba(255,255,255,0.06)}
-.lang-btn.active{background:rgba(78,205,196,0.18);color:var(--accent);font-weight:600;border:1px solid var(--accent-g)}
-
-/* Vitals Banner */
-.vitals-strip{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-family:var(--mono);font-size:.68rem}
-.vital-item{display:flex;gap:4px;align-items:center}
-.vital-k{color:var(--dim);text-transform:uppercase}
-.vital-v{color:var(--text);font-weight:500}
-.vital-pill{margin-left:auto;font-size:.62rem;font-weight:600;padding:2px 8px;border-radius:4px;text-transform:uppercase}
-.vital-pill.ok{background:rgba(78,205,196,0.15);color:var(--pass);border:1px solid var(--pass)}
-.vital-pill.alert{background:rgba(255,107,107,0.15);color:var(--fail);border:1px solid var(--fail)}
-
-/* Left View Toggle */
-.cam-toggle-row{width:100%;max-width:420px;display:flex;gap:6px;margin-bottom:8px}
-.cam-tab-btn{flex:1;background:rgba(255,255,255,0.03);border:1px solid var(--border);color:var(--dim);padding:5px 8px;border-radius:6px;font-size:.7rem;font-family:var(--mono);cursor:pointer;transition:all .15s}
-.cam-tab-btn:hover{background:rgba(255,255,255,0.06);color:var(--text)}
-.cam-tab-btn.active{background:rgba(78,205,196,0.15);color:var(--accent);border-color:var(--accent)}
-
-/* Demo Simulator Controls */
-.sim-card{background:rgba(255,255,255,0.02);border:1px dashed rgba(78,205,196,0.3)}
-.sim-group{margin-bottom:.55rem}
-.sim-group:last-child{margin-bottom:0}
-.sim-label{font-size:.58rem;color:var(--dim);font-family:var(--mono);text-transform:uppercase;margin-bottom:.3rem;letter-spacing:.05em}
-.sim-btn-row{display:flex;flex-wrap:wrap;gap:4px}
-.sim-btn{background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);font-size:.65rem;padding:4px 8px;border-radius:5px;font-family:var(--mono);cursor:pointer;transition:all .15s}
-.sim-btn:hover{background:rgba(255,255,255,0.1);border-color:var(--border2)}
-.sim-btn.alert{color:var(--fail);border-color:rgba(255,107,107,0.3)}
-.sim-btn.alert:hover{background:rgba(255,107,107,0.15)}
-.sim-btn.warn{color:var(--warn);border-color:rgba(255,217,61,0.3)}
-.sim-btn.warn:hover{background:rgba(255,217,61,0.15)}
-.sim-btn.ok{color:var(--pass);border-color:rgba(78,205,196,0.3)}
-.sim-btn.ok:hover{background:rgba(78,205,196,0.15)}
-.sim-btn.reset{color:#a78bfa;border-color:rgba(167,139,250,0.3);margin-left:auto}
-.sim-btn.reset:hover{background:rgba(167,139,250,0.15)}
-
-/* Integrated operator controls retain the dashboard palette and compact cards. */
-.object-workflow,.operator-controls{width:100%;max-width:420px;flex-shrink:0;margin-bottom:1rem}
-.object-workflow{padding:15px;border:1px solid rgba(78,205,196,.25);border-radius:12px;background:linear-gradient(140deg,rgba(78,205,196,.055),rgba(139,92,246,.035))}
-.workflow-title{display:flex;align-items:center;justify-content:space-between;gap:8px}.workflow-title h2{font-size:.9rem;font-weight:600}
-.workflow-steps{display:flex;gap:8px;margin:13px 0;font: .65rem var(--mono);color:#aaa}.workflow-steps span{padding:4px 7px;border:1px solid var(--border2);border-radius:5px}.workflow-steps .current{color:var(--accent);border-color:var(--accent)}
-.operator-row{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0}.operator-row input{flex:1;min-width:120px;padding:9px 10px;border:1px solid var(--border2);border-radius:7px;background:var(--bg);color:var(--text);font: .78rem var(--font)}
-.operator-btn{border:1px solid var(--border2);background:rgba(255,255,255,.035);color:var(--text);border-radius:7px;padding:8px 10px;font: .72rem var(--font);cursor:pointer}.operator-btn.primary{color:var(--accent);border-color:rgba(78,205,196,.4);background:rgba(78,205,196,.08)}.operator-btn.danger{color:#ff9b9b;border-color:rgba(255,107,107,.3)}button:disabled{opacity:.4;cursor:not-allowed}.operator-btn:focus-visible,input:focus-visible,.talk:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-.object-workflow p,.operator-controls small,.object-workflow small,.hud-card small{color:#a5a5b2;font-size:.73rem;line-height:1.5}.object-workflow p{margin:8px 0}#object-preview{max-height:200px;object-fit:contain;background:var(--bg)}.observation-trail{font-size:.72rem;color:#aaa;line-height:1.5;margin-top:10px}.cam{flex-shrink:0}.btn-area{margin-bottom:.4rem}.talk{width:64px;height:64px}.interact,.debug{min-height:0}
-@media(max-width:900px){header{flex-wrap:wrap}.header-actions{margin-left:0}.interact,.debug{overflow:visible}.cam{min-height:240px}}
+.hazard-card.urgent{border-color:var(--hazard);background:linear-gradient(110deg,rgba(255,77,77,.09),transparent),var(--bg2)}
+.hazard-card.urgent .hud-pill{color:var(--hazard);border-color:var(--hazard)}
+.hazard-card.caution,.hazard-card.unavailable{border-color:rgba(255,176,32,.45)}
+.hazard-card.clear{border-color:var(--border)}
+.hazard-msg{font-size:13px;line-height:1.65;margin-bottom:16px}
+.telemetry-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.tele-cell{padding:10px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px}
+.tele-k{font:9px var(--mono);color:var(--dim);text-transform:uppercase}
+.tele-v{font:10px/1.5 var(--mono);margin-top:7px;overflow-wrap:anywhere}
+.warning-controls{border-top:1px solid var(--border);margin-top:16px;padding-top:4px}
+#warning-audio{width:100%;color:var(--accent);border-color:var(--border2)}
+#warning-audio[aria-pressed=true]{border-color:var(--accent);background:rgba(53,215,255,.08)}
+#warning-audio-state{font:10px var(--mono);color:var(--dim)}
+.observation-trail{font-size:12px;color:var(--dim);line-height:1.6;margin-top:12px;overflow-wrap:anywhere}
+.sim-card{border-style:dashed}
+.sim-card summary{list-style:none;display:flex;align-items:center;gap:10px;font:11px var(--mono);color:var(--dim)}
+.sim-card summary::-webkit-details-marker{display:none}
+.sim-card summary:before{content:'+';color:var(--accent);font-size:18px}
+.sim-card[open] summary:before{content:'−'}
+.sim-card summary .hud-pill{margin-left:auto}
+.sim-content{margin-top:18px}
+.sim-group{margin-top:14px}
+.sim-label{font:9px var(--mono);color:var(--dim);margin-bottom:8px}
+.sim-btn-row{display:flex;flex-wrap:wrap;gap:6px}
+.sim-btn{border:1px solid var(--border2);border-radius:4px;background:transparent;color:var(--text);font:10px var(--mono);min-height:34px;padding:6px 8px}
+.sim-btn.alert{color:var(--hazard);border-color:rgba(255,77,77,.4)}
+.sim-btn.warn{color:var(--warn)}
+.sim-btn.ok{color:var(--pass)}
+.sim-btn.reset{color:var(--accent)}
+.log-scroll{max-height:750px;overflow:auto;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px 0}
+.log-line{display:flex;gap:8px;padding:5px 12px;font:10px/1.7 var(--mono)}
+.log-t{color:var(--dim2);flex-shrink:0}
+.log-tag{flex-shrink:0}
+.log-tag.pass{color:var(--pass)}
+.log-tag.fail,.log-msg.fail,.log-tag.warn,.log-msg.warn{color:var(--warn)}
+.log-tag.info{color:var(--dim)}
+.log-msg{overflow-wrap:anywhere;min-width:0}
+.tag{font:10px var(--mono);color:var(--dim);overflow-wrap:anywhere}
+.workspace-footer{display:flex;gap:12px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:18px;margin-top:22px;font:10px var(--mono);color:var(--dim)}
+@media(min-width:1700px){.workspace{grid-template-columns:minmax(0,1fr) 420px;gap:32px}
+.interact{gap:28px}
+.voice-surface{padding:28px}
+.btn-area{padding-top:48px;padding-bottom:24px}
+}
+@media(max-width:1250px){.workspace{grid-template-columns:minmax(0,1fr) 350px}
+.interact{grid-template-columns:1fr}
+.voice-column{margin-top:6px}
+.header-dots{display:none}
+.header-actions{gap:10px}
+}
+@media(max-width:800px){header{padding:12px 18px;gap:12px;flex-wrap:wrap}
+.header-actions{margin-left:auto}
+.lang-selector{order:3;width:100%}
+.lang-btn{flex:1}
+.sound-test-btn{font-size:0;gap:0;padding:9px}
+.sound-test-btn svg{width:18px}
+.workspace-intro{padding:24px 18px 20px}
+.intro-note{display:none}
+.workspace{padding:0 18px 24px;grid-template-columns:1fr;gap:28px}
+.debug{border-left:0;padding-left:0}
+.section-heading{margin-bottom:14px}
+.hud-card-title{font-size:11px}
+.hud-pill{font-size:10px}
+.tele-k,.tele-v{font-size:11px}
+.vitals-strip{font-size:11px}
+.sim-btn{font-size:11px;min-height:40px}
+.workspace-intro h2{font-size:28px}
+.brand-word{width:120px}
+.brand-mark{width:42px;height:42px}
+.brand-caption{font-size:9px}
+}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
+.telemetry-source{margin-bottom:14px}
+.telemetry-source .hud-pill{display:block;text-align:center;padding:7px;font-size:10px;letter-spacing:.08em}
+.sim-summary-note{margin-left:auto;font-size:10px;color:var(--dim)}
+html{scroll-padding-top:150px}
+.cam-tag{max-width:calc(100% - 40px)}
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Beacon</h1>
-  <span class="tag" id="model-tag">…</span>
-  <div class="lang-selector" id="lang-selector">
-    <button class="lang-btn active" data-lang="en" onclick="setLanguage('en')">🇺🇸 EN</button>
-    <button class="lang-btn" data-lang="ko" onclick="setLanguage('ko')">🇰🇷 KO</button>
-    <button class="lang-btn" data-lang="zh" onclick="setLanguage('zh')">🇨🇳 ZH</button>
-    <button class="lang-btn" data-lang="ja" onclick="setLanguage('ja')">🇯🇵 JA</button>
-    <button class="lang-btn" data-lang="es" onclick="setLanguage('es')">🇪🇸 ES</button>
+  <div class="brand"><svg class="brand-mark" viewBox="0 0 200 200" aria-hidden="true"><defs>
+    <linearGradient id="lgLdashboard" x1="1" y1="0" x2="0" y2="0"><stop offset="0" stop-color="#35D7FF" stop-opacity=".9"/><stop offset="1" stop-color="#35D7FF" stop-opacity="0"/></linearGradient>
+    <linearGradient id="lgRdashboard" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#35D7FF" stop-opacity=".9"/><stop offset="1" stop-color="#35D7FF" stop-opacity="0"/></linearGradient>
+    <radialGradient id="lgHdashboard"><stop offset="0" stop-color="#35D7FF" stop-opacity=".85"/><stop offset="1" stop-color="#35D7FF" stop-opacity="0"/></radialGradient></defs>
+  <circle class="lg-halo" cx="100" cy="72" r="36" fill="url(#lgHdashboard)"/>
+  <path class="lg-ring" pathLength="1" d="M143.84 56.16A62 62 0 1 1 56.16 56.16" fill="none" stroke="#168BFF" stroke-width="5" stroke-linecap="round"/>
+  <g class="lg-bl-w"><polygon class="lg-bl" points="100,72 14,52 14,92" fill="url(#lgLdashboard)"/></g>
+  <g class="lg-br-w"><polygon class="lg-br" points="100,72 186,52 186,92" fill="url(#lgRdashboard)"/></g>
+  <g class="lg-tower"><polygon points="88,63 100,48 112,63" fill="#fff"/><polygon points="91,82 109,82 115,150 85,150" fill="#fff"/></g>
+  <g class="lg-lan-w"><rect class="lg-lantern" x="90" y="64" width="20" height="16" fill="#35D7FF"/></g>
+  <g class="lg-waves" fill="none" stroke-width="4" stroke-linecap="round"><path pathLength="1" d="M58 166Q79 157 100 166T142 166" stroke="#35D7FF"/><path pathLength="1" d="M72 180Q86 173 100 180T128 180" stroke="#168BFF"/></g></svg><div><h1><svg class="brand-word" viewBox="0 -8 540 96" role="img" aria-label="Beacon"><g fill="none" stroke="#fff" stroke-width="12"><path transform="translate(0 0)" d="M6 6H34a17 17 0 0 1 0 34H6M6 40H38a17 17 0 0 1 0 34H6M6 0V80"/><path transform="translate(92 0)" d="M54 6H6V74H54M6 40H46M6 0V80"/><path transform="translate(180 0)" d="M2 80L32 3L62 80"/><path transform="translate(272 0)" d="M64 16A34 34 0 1 0 64 64"/><path transform="translate(472 0)" d="M6 80V6L56 74V0"/><circle cx="410" cy="40" r="34"/></g><polygon points="212,40 222,62 202,62" fill="#168BFF"/></svg></h1><p class="brand-caption">Spatial companion</p></div></div>
+  <div class="lang-selector" id="lang-selector" role="group" aria-label="Device language">
+    <button class="lang-btn active" data-lang="en" aria-label="English" onclick="setLanguage('en')">EN</button>
+    <button class="lang-btn" data-lang="ko" aria-label="한국어" onclick="setLanguage('ko')">KO</button>
+    <button class="lang-btn" data-lang="zh" aria-label="中文" onclick="setLanguage('zh')">ZH</button>
+    <button class="lang-btn" data-lang="ja" aria-label="日本語" onclick="setLanguage('ja')">JA</button>
+    <button class="lang-btn" data-lang="es" aria-label="Español" onclick="setLanguage('es')">ES</button>
   </div>
   <div class="header-actions">
-    <button class="sound-test-btn" id="btn-sound-test" title="Play test sound & speech">🔊 Test Sound</button>
+    <button id="stop-all" class="operator-btn danger">Stop · Esc</button>
+    <button class="sound-test-btn" id="btn-sound-test" title="Play test sound & speech"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></svg>Test sound</button>
     <div class="header-dots">
       <span class="dot-label">Gemini</span><span class="dot" id="dot-gemini"></span>
       <span class="dot-label">11Labs</span><span class="dot" id="dot-el"></span>
@@ -856,24 +840,31 @@ header .tag{
     </div>
   </div>
 </header>
-
+<section class="workspace-intro" aria-label="Beacon live workspace">
+  <div><p class="eyebrow">HackGT 2026 / Live workspace</p><h2>Say where. <span>Be there.</span></h2></div>
+  <p class="intro-note">More context. Through sound and touch.<br>Built to complement the white cane.</p>
+</section>
+<main class="workspace">
 <!-- left panel -->
 <div class="interact">
+ <section class="scene-column" aria-labelledby="perception-heading">
+  <h2 class="section-heading" id="perception-heading"><span class="section-number">01</span> Perception <span class="section-note">See your surroundings</span></h2>
   <div class="cam-toggle-row">
-    <button class="cam-tab-btn active" id="btn-view-cam" onclick="switchLeftView('cam')">📷 Live Camera</button>
-    <button class="cam-tab-btn" id="btn-view-map" onclick="switchLeftView('map')">🗺️ Illustrative radar (not live map)</button>
+    <button class="cam-tab-btn active" id="btn-view-cam" onclick="switchLeftView('cam')">Camera</button>
+    <button class="cam-tab-btn" id="btn-view-map" onclick="switchLeftView('map')">Radar · illustrative</button>
   </div>
   <div class="cam" id="cam-box">
+    <div class="camera-empty" aria-hidden="true"><svg viewBox="0 0 80 80" fill="none" stroke="currentColor"><circle cx="40" cy="40" r="30" stroke-dasharray="130 60"/><circle cx="40" cy="40" r="19" opacity=".5"/><path d="M40 8v15m0 34v15M8 40h15m34 0h15"/><circle cx="40" cy="40" r="3" fill="currentColor"/></svg><span>AWAITING CAMERA</span></div>
     <span class="cam-tag" id="cam-tag">…</span>
     <video id="webcam" autoplay playsinline muted style="display:none"></video>
-    <img id="fallback" src="/fallback-image" alt="" style="display:none">
+    <img id="fallback" src="/fallback-image" alt="Current camera scene" style="display:none">
     <canvas id="planner-canvas" width="420" height="315" style="display:none;width:100%;height:100%"></canvas>
     <canvas id="snap" style="display:none"></canvas>
     <div class="meter-wrap"><div class="meter-bar" id="meter"></div></div>
   </div>
 
   <section class="object-workflow" aria-labelledby="object-heading">
-    <div class="workflow-title"><h2 id="object-heading">Find an object & guide</h2><span class="hud-pill idle" id="object-phase">READY</span></div>
+    <div class="workflow-title"><h2 id="object-heading">Find an object</h2><span class="hud-pill idle" id="object-phase">READY</span></div>
     <div class="workflow-steps"><span id="step-find" class="current">1 · Find</span><span id="step-confirm">2 · Inspect</span><span id="step-guide">3 · Guide</span></div>
     <form id="object-form" class="operator-row">
       <input id="object-query" maxlength="120" placeholder="Chair, water bottle, doorway…" aria-label="Object to find" required>
@@ -885,12 +876,12 @@ header .tag{
     <small id="object-note">Guidance rechecks a fresh image. Depth routing needs the Pi.</small>
   </section>
 
-  <div class="audio-bar">
-    <label title="Play audio via Web Audio / HTML5 in this browser tab"><input type="checkbox" id="opt-browser-audio" checked> Browser Audio</label>
-    <label title="Scene audio plays once in the browser; Guardian uses native laptop audio"><input type="checkbox" id="opt-host-audio" disabled> Separate host playback disabled</label>
-    <label title="Play Pi hardware earcons (sound effects)"><input type="checkbox" id="opt-earcons" checked> Earcons</label>
-  </div>
-
+ </section>
+ <section class="voice-column" aria-labelledby="voice-heading">
+  <h2 class="section-heading" id="voice-heading"><span class="section-number">02</span> Voice <span class="section-note">Ask. Listen. Explore.</span></h2>
+  <div class="voice-surface">
+   <h3 class="voice-invitation">What’s around you?</h3>
+   <p class="voice-subtitle">Ask a question or read a sign. Beacon listens.</p>
   <div class="btn-area">
     <button class="talk" id="btn" disabled title="Hold to talk, release to send">
       <svg class="mic" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
@@ -902,11 +893,18 @@ header .tag{
 
   <section class="operator-controls" aria-label="Laptop controls">
     <form id="question-form" class="operator-row"><input id="typed-question" maxlength="2000" placeholder="Ask about the scene…" aria-label="Typed scene question" required><button id="ask-typed" class="operator-btn" type="submit">Ask</button></form>
-    <div class="operator-row"><button id="enable-mic" class="operator-btn">Enable mic</button><button id="stop-all" class="operator-btn danger">Stop · Esc</button><button id="repeat-answer" class="operator-btn">Repeat</button><button id="local-status" class="operator-btn">Status</button></div>
+    <div class="operator-row"><button id="enable-mic" class="operator-btn">Enable mic</button><button id="repeat-answer" class="operator-btn">Repeat</button><button id="local-status" class="operator-btn">Status</button></div>
     <small id="operator-hint">Hold the microphone button or Space to talk. Release to send.</small>
-    <div class="operator-row"><button id="warning-audio" class="operator-btn" aria-pressed="false">Enable obstacle warnings</button><span id="warning-audio-state" role="status">Warning audio off</span></div>
-    <small>Pi depth alerts → laptop speakers. Judge simulations are announced as simulated. Stop mutes warnings.</small>
+
   </section>
+
+  <div class="audio-bar">
+    <label title="Play audio via Web Audio / HTML5 in this browser tab"><input type="checkbox" id="opt-browser-audio" checked> Browser Audio</label>
+    <label title="Scene audio plays once in the browser; Guardian uses native laptop audio"><input type="checkbox" id="opt-host-audio" disabled> Host playback unavailable</label>
+    <label title="Play Pi hardware earcons (sound effects)"><input type="checkbox" id="opt-earcons" checked> Earcons</label>
+  </div>
+
+  </div>
 
   <div class="resp" id="resp">
     <div class="f"><label>Heard</label><p id="r-heard"></p></div>
@@ -917,20 +915,22 @@ header .tag{
       <label>Voice Output</label>
       <div class="audio-player-row">
         <audio id="audio-player" controls preload="auto"></audio>
-        <button class="replay-btn" id="replay-btn" title="Replay voice">🔊 Replay</button>
+        <button class="replay-btn" id="replay-btn" title="Replay voice">Replay</button>
       </div>
       <div class="audio-status" id="audio-status"></div>
     </div>
     <div class="f"><label>Latency</label><div class="timings" id="r-timings"></div></div>
   </div>
+  <div class="workspace-footer"><span>GEMINI + ELEVENLABS</span><span class="tag" id="model-tag">Connecting…</span></div>
+ </section>
 </div>
 
 <!-- right panel: judge telemetry HUD & debug log -->
 <div class="debug">
   <div class="debug-header">
     <div class="hud-tabs">
-      <button class="hud-tab active" id="tab-hud">🎯 Judge Telemetry</button>
-      <button class="hud-tab" id="tab-log">📋 Console Log</button>
+      <button class="hud-tab active" id="tab-hud">Telemetry</button>
+      <button class="hud-tab" id="tab-log">Console</button>
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:.5rem">
       <span class="hud-pill idle" id="hud-cam-status">CAM: UNKNOWN</span>
@@ -939,6 +939,8 @@ header .tag{
     </div>
   </div>
 
+  <div class="telemetry-source"><span class="hud-pill idle" id="sim-pill">LIVE TELEMETRY</span></div>
+
   <!-- Judge Telemetry HUD -->
   <div class="hud-panel" id="hud-panel">
     <!-- Real-Time Latency & Vitals Meter -->
@@ -946,42 +948,37 @@ header .tag{
       <div class="vital-item"><span class="vital-k">CAM:</span> <span class="vital-v" id="vital-cam">Unmeasured</span></div>
       <div class="vital-item"><span class="vital-k">HAZARD:</span> <span class="vital-v" id="vital-haz">Unmeasured</span></div>
       <div class="vital-item"><span class="vital-k">PLANNER:</span> <span class="vital-v" id="vital-plan">Unmeasured</span></div>
-      <div class="vital-item"><span class="vital-k">RTT:</span> <span class="vital-v" id="vital-rtt">0ms</span></div>
+      <div class="vital-item"><span class="vital-k">RTT:</span> <span class="vital-v" id="vital-rtt">—</span></div>
       <div class="vital-pill" id="vital-budget">LATENCY UNMEASURED</div>
     </div>
 
-    <!-- Demo Simulator / Judge Controls -->
-    <div class="hud-card sim-card">
+    <!-- Hazard Perception Radar -->
+    <div class="hud-card hazard-card unavailable" id="hazard-card">
       <div class="hud-card-title">
-        <span>🧪 Demo Simulator / Judge Controls</span>
-        <span class="hud-pill idle" id="sim-pill">LIVE TELEMETRY</span>
+        <span>Obstacle warnings</span>
+        <span class="hud-pill warn" id="hazard-pill">UNKNOWN</span>
       </div>
-      <div class="sim-group">
-        <div class="sim-label">INJECT HAZARD SCENARIO:</div>
-        <div class="sim-btn-row">
-          <button class="sim-btn alert" onclick="injectSim('hazard', 'urgent_head')">⚠️ Head Obstacle</button>
-          <button class="sim-btn warn" onclick="injectSim('hazard', 'caution_corridor')">⚠️ Side Obstacle</button>
-          <button class="sim-btn alert" onclick="injectSim('hazard', 'dropoff')">🕳️ Stairs / Drop</button>
-          <button class="sim-btn ok" onclick="injectSim('hazard', 'clear')">🟢 Clear</button>
+      <div class="hazard-msg" id="hazard-msg">Waiting for live hazard sensing. Movement guidance is inhibited.</div>
+      <div class="telemetry-row">
+        <div class="tele-cell">
+          <div class="tele-k">Severity</div>
+          <div class="tele-v" id="haz-sev">UNKNOWN</div>
+        </div>
+        <div class="tele-cell">
+          <div class="tele-k">Distance</div>
+          <div class="tele-v" id="haz-dist">—</div>
+        </div>
+        <div class="tele-cell">
+          <div class="tele-k">Heartbeat</div>
+          <div class="tele-v" id="haz-age">—</div>
         </div>
       </div>
-      <div class="sim-group">
-        <div class="sim-label">INJECT TACTILE HEADING (ESP32 SERVOS):</div>
-        <div class="sim-btn-row">
-          <button class="sim-btn" onclick="injectSim('direction', 'forward')">↑ Forward (0x01)</button>
-          <button class="sim-btn" onclick="injectSim('direction', 'left')">↰ Left (0x02)</button>
-          <button class="sim-btn" onclick="injectSim('direction', 'right')">↱ Right (0x04)</button>
-          <button class="sim-btn" onclick="injectSim('direction', 'stop')">🛑 Stop / Neutral</button>
-        </div>
-      </div>
-      <div class="sim-group">
-        <div class="sim-label">FAIL-SAFE VALIDATION:</div>
-        <div class="sim-btn-row">
-          <button class="sim-btn warn" onclick="injectSim('fault', 'heartbeat_drop')">⚡ Drop Heartbeat (Fail Toward Cane)</button>
-          <button class="sim-btn reset" onclick="injectSim('reset', '')">🔄 Reset Live</button>
-        </div>
+      <div class="warning-controls">
+    <div class="operator-row"><button id="warning-audio" class="operator-btn" aria-pressed="false">Enable obstacle warnings</button><span id="warning-audio-state" role="status">Warning audio off</span></div>
+    <small>Pi depth alerts → laptop speakers. Judge simulations are announced as simulated. Stop mutes warnings.</small>
       </div>
     </div>
+
     <!-- Active Heading Card -->
     <div class="hud-card">
       <div class="hud-card-title">
@@ -989,7 +986,7 @@ header .tag{
         <span class="hud-pill idle" id="hud-path-status">Guidance Idle</span>
       </div>
       <div class="dir-heading">
-        <div class="dir-icon idle" id="dir-icon">⚪</div>
+        <div class="dir-icon idle" id="dir-icon">○</div>
         <div class="dir-details">
           <div class="dir-title" id="dir-title">IDLE / CANE ONLY</div>
           <div class="dir-sub" id="dir-sub">Guidance inactive — navigate by cane</div>
@@ -1007,51 +1004,28 @@ header .tag{
         <div class="hand-box" id="hand-left">
           <div class="hand-label">Left Hand (Port 4210)</div>
           <svg class="hand-svg" viewBox="0 0 64 64">
-            <circle cx="32" cy="32" r="28" fill="#12121a" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
+            <circle cx="32" cy="32" r="28" fill="#0B1017" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
             <line x1="32" y1="32" x2="32" y2="10" stroke="rgba(255,255,255,0.2)" stroke-dasharray="2 2" stroke-width="1.5"/>
             <g class="hand-arm" id="arm-left">
-              <line x1="32" y1="32" x2="32" y2="12" stroke="#4ecdc4" stroke-width="3" stroke-linecap="round"/>
-              <circle cx="32" cy="12" r="4" fill="#4ecdc4"/>
+              <line x1="32" y1="32" x2="32" y2="12" stroke="#35D7FF" stroke-width="3" stroke-linecap="round"/>
+              <circle cx="32" cy="12" r="4" fill="#35D7FF"/>
             </g>
-            <circle cx="32" cy="32" r="5" fill="#3a3a44"/>
+            <circle cx="32" cy="32" r="5" fill="#34485e"/>
           </svg>
           <div class="hand-state-text" id="hand-left-text">REST (90°)</div>
         </div>
         <div class="hand-box" id="hand-right">
           <div class="hand-label">Right Hand (Port 4210)</div>
           <svg class="hand-svg" viewBox="0 0 64 64">
-            <circle cx="32" cy="32" r="28" fill="#12121a" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
+            <circle cx="32" cy="32" r="28" fill="#0B1017" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
             <line x1="32" y1="32" x2="32" y2="10" stroke="rgba(255,255,255,0.2)" stroke-dasharray="2 2" stroke-width="1.5"/>
             <g class="hand-arm" id="arm-right">
-              <line x1="32" y1="32" x2="32" y2="12" stroke="#4ecdc4" stroke-width="3" stroke-linecap="round"/>
-              <circle cx="32" cy="12" r="4" fill="#4ecdc4"/>
+              <line x1="32" y1="32" x2="32" y2="12" stroke="#35D7FF" stroke-width="3" stroke-linecap="round"/>
+              <circle cx="32" cy="12" r="4" fill="#35D7FF"/>
             </g>
-            <circle cx="32" cy="32" r="5" fill="#3a3a44"/>
+            <circle cx="32" cy="32" r="5" fill="#34485e"/>
           </svg>
           <div class="hand-state-text" id="hand-right-text">REST (90°)</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Hazard Perception Radar -->
-    <div class="hud-card hazard-card urgent" id="hazard-card">
-      <div class="hud-card-title">
-        <span>Obstacle Radar (Chest/Head Depth)</span>
-        <span class="hud-pill ok" id="hazard-pill">UNKNOWN</span>
-      </div>
-      <div class="hazard-msg" id="hazard-msg">Waiting for live hazard sensing. Movement guidance is inhibited.</div>
-      <div class="telemetry-row">
-        <div class="tele-cell">
-          <div class="tele-k">Severity</div>
-          <div class="tele-v" id="haz-sev">NONE</div>
-        </div>
-        <div class="tele-cell">
-          <div class="tele-k">Distance</div>
-          <div class="tele-v" id="haz-dist">—</div>
-        </div>
-        <div class="tele-cell">
-          <div class="tele-k">Heartbeat</div>
-          <div class="tele-v" id="haz-age">0ms</div>
         </div>
       </div>
     </div>
@@ -1080,11 +1054,45 @@ header .tag{
       <small id="guardian-help">Uses the laptop microphone and speakers. Text messages are simulated.</small>
       <div id="observation-trail" class="observation-trail"></div>
     </div>
+    <!-- Demo Simulator / Judge Controls -->
+    <details class="hud-card sim-card">
+      <summary><span>Demo simulator</span>
+        <span class="sim-summary-note">Display only</span>
+      </summary>
+      <div class="sim-content"><small>Illustrative scenarios. Injected warnings are announced as simulated.</small>
+      <div class="sim-group">
+        <div class="sim-label">INJECT HAZARD SCENARIO:</div>
+        <div class="sim-btn-row">
+          <button class="sim-btn alert" onclick="injectSim('hazard', 'urgent_head')">Head Obstacle</button>
+          <button class="sim-btn warn" onclick="injectSim('hazard', 'caution_corridor')">Side Obstacle</button>
+          <button class="sim-btn alert" onclick="injectSim('hazard', 'dropoff')">Stairs / Drop</button>
+          <button class="sim-btn ok" onclick="injectSim('hazard', 'clear')">Clear</button>
+        </div>
+      </div>
+      <div class="sim-group">
+        <div class="sim-label">INJECT TACTILE HEADING (ESP32 SERVOS):</div>
+        <div class="sim-btn-row">
+          <button class="sim-btn" onclick="injectSim('direction', 'forward')">↑ Forward (0x01)</button>
+          <button class="sim-btn" onclick="injectSim('direction', 'left')">↰ Left (0x02)</button>
+          <button class="sim-btn" onclick="injectSim('direction', 'right')">↱ Right (0x04)</button>
+          <button class="sim-btn" onclick="injectSim('direction', 'stop')">Stop / Neutral</button>
+        </div>
+      </div>
+      <div class="sim-group">
+        <div class="sim-label">FAIL-SAFE VALIDATION:</div>
+        <div class="sim-btn-row">
+          <button class="sim-btn warn" onclick="injectSim('fault', 'heartbeat_drop')">Drop Heartbeat (Fail Toward Cane)</button>
+          <button class="sim-btn reset" onclick="injectSim('reset', '')">Reset Live</button>
+        </div>
+      </div>
+      </div>
+    </details>
   </div>
 
   <!-- Console Log -->
   <div class="log-scroll" id="log-scroll" style="display:none"></div>
 </div>
+</main>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -1252,8 +1260,7 @@ async function init() {
     dot('cam', true);
     log('Webcam: active', 'pass');
   } catch(e) {
-    fallback.style.display = 'block';
-    camTag.textContent = 'image';
+    fallback.style.display = 'none';
     dot('cam', false);
     camTag.textContent = 'No camera';
     log('Webcam unavailable — connect a camera or use a labelled rehearsal image', 'warn');
@@ -1456,7 +1463,7 @@ function drawTarget(b64, box, label, canvasId="r-target", token=requestEpoch){
     ctx.drawImage(img,0,0);
     // box_2d is [y_min, x_min, y_max, x_max] on 0-1000.
     const [y0,x0,y1,x1]=box.map((v,i)=>v/1000*(i%2?c.width:c.height));
-    ctx.lineWidth=Math.max(2,c.width/200); ctx.strokeStyle='#3ddc84'; ctx.fillStyle='#3ddc84';
+    ctx.lineWidth=Math.max(2,c.width/200); ctx.strokeStyle='#35D7FF'; ctx.fillStyle='#35D7FF';
     ctx.strokeRect(x0,y0,x1-x0,y1-y0);
     ctx.font=`${Math.max(14,Math.round(c.width/40))}px sans-serif`;
     ctx.fillText(label||'target',x0+4,Math.max(y0-6,18));
@@ -1536,9 +1543,12 @@ function switchLeftView(mode) {
     drawPlannerRadar(lastTelemetry || {});
   } else {
     canvas.style.display = 'none';
-    $('cam-tag').textContent = 'Live Camera';
+    const hasImage = dashboardConfig.fallback_image ||
+      (dashboardConfig.ros_camera && fallback.complete && fallback.naturalWidth > 0);
+    $('cam-tag').textContent = hasWebcam ? 'Live camera' : dashboardConfig.fallback_image
+      ? 'Static rehearsal image' : hasImage ? 'Pi camera' : 'No camera';
     $('webcam').style.display = hasWebcam ? 'block' : 'none';
-    $('fallback').style.display = hasWebcam ? 'none' : 'block';
+    $('fallback').style.display = !hasWebcam && hasImage ? 'block' : 'none';
   }
 }
 
@@ -1550,7 +1560,7 @@ function drawPlannerRadar(d) {
   ctx.clearRect(0, 0, w, h);
 
   // Background grid
-  ctx.fillStyle = '#06060c';
+  ctx.fillStyle = '#05070A';
   ctx.fillRect(0, 0, w, h);
 
   const cx = w / 2;
@@ -1580,8 +1590,8 @@ function drawPlannerRadar(d) {
   });
 
   // Robot Origin
-  ctx.fillStyle = '#4ecdc4';
-  ctx.shadowColor = 'rgba(78,205,196,0.6)';
+  ctx.fillStyle = '#35D7FF';
+  ctx.shadowColor = 'rgba(53,215,255,0.6)';
   ctx.shadowBlur = 10;
   ctx.beginPath();
   ctx.arc(cx, cy, 8, 0, Math.PI * 2);
@@ -1594,7 +1604,7 @@ function drawPlannerRadar(d) {
   if (dir === 1) angle -= 0.45; // Left
   if (dir === 2) angle += 0.45; // Right
 
-  ctx.strokeStyle = '#4ecdc4';
+  ctx.strokeStyle = '#35D7FF';
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(cx, cy);
@@ -1606,8 +1616,8 @@ function drawPlannerRadar(d) {
   let targetX = cx + (dir === 1 ? -60 : (dir === 2 ? 60 : 0));
   let targetY = cy - 2.4 * scale;
 
-  ctx.fillStyle = '#10b981';
-  ctx.shadowColor = '#10b981';
+  ctx.fillStyle = '#35D7FF';
+  ctx.shadowColor = '#35D7FF';
   ctx.shadowBlur = 12;
   ctx.beginPath();
   ctx.arc(targetX, targetY, 9, 0, Math.PI * 2);
@@ -1615,10 +1625,10 @@ function drawPlannerRadar(d) {
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#ffffff';
   ctx.font = '11px Inter, sans-serif';
-  ctx.fillText(g.target_label ? '🎯 ' + g.target_label.toUpperCase() : '🎯 BACKPACK', targetX + 14, targetY + 4);
+  ctx.fillText(g.target_label ? g.target_label.toUpperCase() : 'EXAMPLE TARGET', targetX + 14, targetY + 4);
 
   // A* Path Trajectory (curved green line)
-  ctx.strokeStyle = (g.path_valid !== false) ? 'rgba(78,205,196,0.85)' : 'rgba(255,107,107,0.5)';
+  ctx.strokeStyle = (g.path_valid !== false) ? 'rgba(53,215,255,0.85)' : 'rgba(255,176,32,0.5)';
   ctx.lineWidth = 3;
   ctx.setLineDash([6, 4]);
   ctx.beginPath();
@@ -1635,8 +1645,8 @@ function drawPlannerRadar(d) {
     let hx = cx + Math.cos(hazAngle) * hazDist;
     let hy = cy + Math.sin(hazAngle) * hazDist;
 
-    ctx.fillStyle = hazard.urgent ? 'rgba(255,107,107,0.85)' : 'rgba(255,217,61,0.85)';
-    ctx.shadowColor = hazard.urgent ? '#ff6b6b' : '#ffd93d';
+    ctx.fillStyle = hazard.urgent ? 'rgba(255,77,77,0.85)' : 'rgba(255,176,32,0.85)';
+    ctx.shadowColor = hazard.urgent ? '#FF4D4D' : '#FFB020';
     ctx.shadowBlur = 16;
     ctx.beginPath();
     ctx.arc(hx, hy, hazard.urgent ? 14 : 10, 0, Math.PI * 2);
@@ -1645,7 +1655,7 @@ function drawPlannerRadar(d) {
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 10px Inter, sans-serif';
-    ctx.fillText(hazard.urgent ? '⚠️ DANGER' : '⚠️ CAUTION', hx + 16, hy + 4);
+    ctx.fillText(hazard.urgent ? 'DANGER' : 'CAUTION', hx + 16, hy + 4);
   }
 }
 
@@ -1748,7 +1758,7 @@ function updateHud(d, rtt) {
     const tgt = g.target_label ? `Target: ${g.target_label}` : m.sub;
     dirSub.textContent = tgt;
   } else {
-    dirIcon.textContent = '⚪';
+    dirIcon.textContent = '○';
     dirIcon.className = 'dir-icon idle';
     dirTitle.textContent = 'IDLE / CANE ONLY';
     dirSub.textContent = 'Guidance inactive — navigate by cane';
@@ -1795,7 +1805,7 @@ function updateHud(d, rtt) {
   hDist.textContent = h.distance_m != null ? `${h.distance_m.toFixed(1)}m` : '—';
 
   if (!h.available || (h.age_s != null && h.age_s > 0.5)) {
-    hCard.className = 'hud-card hazard-card urgent';
+    hCard.className = 'hud-card hazard-card unavailable';
     hPill.textContent = 'NO SENSING';
     hPill.className = 'hud-pill alert';
     hMsg.textContent = 'Hazard detector offline or heartbeat lost (>0.5s). Guidance inhibited.';
@@ -1819,6 +1829,8 @@ function updateHud(d, rtt) {
     hMsg.textContent = 'No obstacle reported in the observed calibrated volume. Unobserved space is unknown.';
     hSev.textContent = 'CLEAR';
   }
+
+  if (h.simulated === true) hMsg.textContent = 'Simulated warning. ' + hMsg.textContent;
 
   // Update Guardian Card
   const guard = d.guardian || {};

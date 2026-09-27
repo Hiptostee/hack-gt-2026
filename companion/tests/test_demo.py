@@ -115,8 +115,8 @@ class LaptopDemo(unittest.TestCase):
             with urlopen(f'http://127.0.0.1:{self.server.server_port}'+path) as response:
                 pages.append(response.read())
         self.assertEqual(*pages)
-        self.assertIn(b'Find an object & guide',pages[0])
-        self.assertIn(b'Judge Telemetry',pages[0])
+        self.assertIn(b'id="object-heading"',pages[0])
+        self.assertIn(b'id="tab-hud"',pages[0])
         self.assertIn(b'guardian-open',pages[0])
         with urlopen(f'http://127.0.0.1:{self.server.server_port}/dashboard-controls.js') as response:
             self.assertIn(b'submitOperator',response.read())

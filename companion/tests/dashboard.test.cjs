@@ -44,3 +44,48 @@ test('missing camera health and latency do not become positive defaults', () => 
   assert.equal(d.get('hud-cam-status').className, 'hud-pill alert');
   assert.equal(d.get('vital-cam').textContent, '15 FPS · unmeasured');
 });
+
+
+test('simulated hazard stays labelled beside the warning message', () => {
+  const d = dashboard();
+  d.update({hazard: {available: true, urgent: true, simulated: true, phrase: 'Head obstacle.'}});
+  assert.equal(d.get('hazard-msg').textContent, 'Simulated warning. Head obstacle.');
+  d.update({simulation_active: true, hazard: {available: true, urgent: true, phrase: 'Live obstacle.'}});
+  assert.equal(d.get('hazard-msg').textContent, 'Live obstacle.');
+  d.update({telemetry_unavailable: true});
+  assert.equal(d.get('hazard-card').className, 'hud-card hazard-card unavailable');
+});
+
+test('returning from radar preserves static and missing-camera labels', () => {
+  const elements = new Map();
+  const get = id => {
+    if (!elements.has(id)) elements.set(id, {style: {}, textContent: ''});
+    return elements.get(id);
+  };
+  const context = vm.createContext({$: get, dashboardConfig: {fallback_image: true},
+    hasWebcam: false, fallback: {complete: false, naturalWidth: 0}, lastTelemetry: {},
+    drawPlannerRadar() {}});
+  vm.runInContext(source.slice(source.indexOf('function switchLeftView('), source.indexOf('function drawPlannerRadar(')), context);
+  context.switchLeftView('map');
+  context.switchLeftView('cam');
+  assert.equal(get('cam-tag').textContent, 'Static rehearsal image');
+  assert.equal(get('fallback').style.display, 'block');
+  context.dashboardConfig = {};
+  context.switchLeftView('cam');
+  assert.equal(get('cam-tag').textContent, 'No camera');
+  assert.equal(get('fallback').style.display, 'none');
+});
+
+test('Space on simulator disclosure retains native keyboard activation', () => {
+  const controls = fs.readFileSync(path.join(__dirname, '../dashboard/controls.js'), 'utf8');
+  let keydown, talks = 0;
+  const mic = {};
+  const context = vm.createContext({document: {addEventListener(name, handler) {keydown = handler;}},
+    btn: mic, onDown() {talks++;}, stopOperator() {}});
+  vm.runInContext(controls.slice(controls.indexOf("document.addEventListener('keydown'"),
+    controls.indexOf("document.addEventListener('keyup'")), context);
+  keydown({code: 'Space', repeat: false, target: {tagName: 'SUMMARY'}});
+  assert.equal(talks, 0);
+  keydown({code: 'Space', repeat: false, target: mic});
+  assert.equal(talks, 1);
+});

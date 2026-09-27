@@ -2,6 +2,15 @@
 
 ## Current integration — 2026-09-27
 
+Dashboard visual alignment is implemented on `ui/beacon-dashboard`, based on
+main `7bb041f` with the subsequent `70a65fb` standalone `.env` fix included:
+responsive Beacon presentation branding, perception/voice
+workspace, persistent Stop, hazard audio beside telemetry, and collapsible
+simulation with a persistent source badge. Existing operator contracts and
+warning behavior remain in place. Validation: 213 Python and 25 Node tests;
+static Chrome review at desktop, tablet and mobile widths. Live hardware/audio
+validation below remains outstanding.
+
 The `feature/guardian` branch combines the named-target work from
 `feature/navigate-target` (`b04eb8d`) with Guardian (`3e24163`), committed and pushed
 as `ffaa730`; review fixes were committed as `d2812dd`, reconciled as `a8773fd`

@@ -326,7 +326,7 @@ btn.onpointercancel = stopOperator;
 btn.oncontextmenu = event => event.preventDefault();
 document.addEventListener('keydown', event => {
   if (event.code === 'Escape') { event.preventDefault(); stopOperator(); }
-  if (event.code === 'Space' && !event.repeat && (!['INPUT', 'TEXTAREA', 'BUTTON'].includes(event.target.tagName) || event.target === btn)) onDown(event);
+  if (event.code === 'Space' && !event.repeat && (!['INPUT', 'TEXTAREA', 'BUTTON', 'SUMMARY', 'SELECT', 'A'].includes(event.target.tagName) || event.target === btn)) onDown(event);
 });
 document.addEventListener('keyup', event => { if (event.code === 'Space' && pressed) onUp(event); });
 window.addEventListener('blur', () => { if (pressed) stopOperator(); });
