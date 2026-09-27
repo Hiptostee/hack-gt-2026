@@ -139,7 +139,7 @@ def generate_launch_description():
             "enable_icp", default_value="false",
             description="Refine visual RGB-D registration with ICP; no separate ICP odometry stream"),
         DeclareLaunchArgument("enable_loop_closure", default_value="true"),
-        DeclareLaunchArgument("odom_image_decimation", default_value="2"),
+        DeclareLaunchArgument("odom_image_decimation", default_value="1"),
         DeclareLaunchArgument("odom_max_update_rate", default_value="8.0"),
         DeclareLaunchArgument("imu_i2c_bus", default_value="1"),
         DeclareLaunchArgument("imu_i2c_address", default_value="104"),

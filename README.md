@@ -104,7 +104,7 @@ ros2 launch realsense_mapper hardware.launch.py
 On the Pi, run `./scripts/pi_launch.sh`. This starts the Zenoh router, D415,
 Pi camera bridge, RGB-D odometry, RTAB-Map mapping, and YOLO backpack stack.
 Defaults are synchronized 640x480 at
-15 FPS, `Odom/ImageDecimation=2`, an 8 Hz odometry cap, and a latest-frame
+15 FPS, `Odom/ImageDecimation=1`, an 8 Hz odometry cap, and a latest-frame
 processing policy. The script uses `/opt/models/yolox.onnx` if present;
 otherwise it downloads the model once to `data/models/yolox.onnx`. IMU and ICP
 are disabled. To run the odometry-only baseline again, pass
@@ -222,7 +222,7 @@ export ZENOH_ROUTER_CHECK_ATTEMPTS=30
 unset ZENOH_CONFIG_OVERRIDE
 ros2 launch realsense_mapper hardware.launch.py \
   camera_profile:=640x480x15 \
-  odom_image_decimation:=2 \
+  odom_image_decimation:=1 \
   enable_backpack_stack:=false \
   enable_imu:=false \
   enable_icp:=false \
@@ -373,4 +373,6 @@ matter more than merely adding an `/imu` topic.
 - Blank walls, darkness, motion blur, and fast rotation can make RGB-D visual
   odometry lose tracking.
 - The occupancy grid depends on the camera starting level and is intended only
-  for early experimentation.
+  for early experimentation. A level tabletop can be labeled as ground; the
+  planner starts at the camera's projected X/Y position, not at a measured foot
+  position. Do not treat its free cells or paths as confirmed walking surface.
