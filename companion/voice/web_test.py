@@ -421,6 +421,11 @@ class Handler(BaseHTTPRequestHandler):
                     resp.update(workflow="not_found", answer=(result["answer"] if image_jpeg else
                                 "No camera image is available. Connect the camera and find the object again."))
                 return
+            if locate_only and (result["device_action"] != "navigate_target"
+                                or not result.get("box_2d") or not image_jpeg):
+                resp["answer"] = "I could not confirm the selected object in a fresh image. Find it again before requesting guidance."
+                resp["device_action"] = "none"
+                return
             if (result["device_action"] == "navigate_target" and result["box_2d"] is not None
                     and image_jpeg):
                 resp["target"] = result["target"]
