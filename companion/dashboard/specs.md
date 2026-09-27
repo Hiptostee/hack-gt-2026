@@ -29,6 +29,13 @@ uses a fresh frame; no-match and expiry cannot reuse a target; stop/Guardian
 invalidate selection; both URLs serve the same dashboard; browser UI shows the
 find/confirm/guide state and retains all judge widgets.
 
+Deployment review: telemetry failures clear prior direction/hand and measurement
+displays; an unavailable camera is never styled ready. ROS direction values 3/4
+render rotate left/right. Missing measured values replace previous readings with
+unknown and never substitute a constant latency.
+The direction simulator uses no direction code for Stop/neutral (3 is rotation,
+not Stop); positive bearing means left, matching the real planner.
+
 ## Measurement honesty correction (2026-09-27)
 
 Uninstrumented FPS and latency values are now `null`, not fixed 30/33/16/42 ms

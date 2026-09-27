@@ -211,7 +211,14 @@ class RosGuidance:
         self._publish()
 
     def close(self):
-        self.stop()
+        try:
+            if rclpy.ok():
+                self.stop()
+        except Exception:
+            # SIGINT can invalidate the context between ok() and publication.
+            # If ROS is still live, preserve real publication failures.
+            if rclpy.ok():
+                raise
         self.executor.shutdown()
         self.thread.join(timeout=2)
         self.executor.remove_node(self.node)

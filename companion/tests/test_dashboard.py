@@ -214,6 +214,11 @@ class TestSimulationAndLanguage(unittest.TestCase):
         self.assertEqual(server.simulation["guidance"]["direction"], 1)
         self.assertEqual(server.simulation["guidance"]["tactile_flags"], 2)
         self.assertEqual(server.simulation["guidance"]["tactile_label"], "left")
+        self.assertGreater(server.simulation["guidance"]["bearing_deg"], 0)
+        apply_simulation(server, "direction", "stop")
+        self.assertIsNone(server.simulation["guidance"]["direction"])
+        self.assertFalse(server.simulation["guidance"]["active"])
+        self.assertEqual(server.simulation["guidance"]["tactile_flags"], 0)
 
         # Inject fault
         apply_simulation(server, "fault", "heartbeat_drop")

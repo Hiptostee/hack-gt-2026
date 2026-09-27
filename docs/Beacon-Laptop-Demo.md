@@ -32,8 +32,9 @@ branch has not been folded into this two-feature integration.
 
 ## What is integrated
 
-Code from `feature/navigate-target` at `b04eb8d` is combined in the working tree
-of `feature/guardian` at `3e24163`. Branch history has not been merged or committed.
+Code from `feature/navigate-target` at `b04eb8d` is incorporated in
+`feature/guardian`, committed at `ffaa730`. Review fixes follow that integration;
+see [merge readiness](Beacon-Merge-Readiness.md). Main has not been changed.
 The other worktree is unchanged. The integration includes:
 
 - Gemini target schema, normalized object boxes, timestamped camera frames and
@@ -94,6 +95,7 @@ bridge does not have frame timestamps or named-target endpoints.
 ```bash
 cd ros_ws
 source /opt/ros/jazzy/setup.bash
+rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
 colcon build --packages-select hazard_warnings realsense_mapper --cmake-args -DCMAKE_BUILD_TYPE=Release
 cd ..
 PI_VOICE=0 bash scripts/pi_launch.sh enable_icp:=false
@@ -165,11 +167,12 @@ presents hardcoded numbers as timing measurements.
 
 ## Verification recorded in this integration
 
-- 210 Python tests pass, including Find without routing, fresh-frame Guide,
+- 212 Python tests pass, including Find without routing, fresh-frame Guide,
   missing/expired/stopped selections, HTTP target transport, shared history, typed
   payloads, cancellation races, missing live camera, browser heartbeat, Guardian
   recovery, rotation codes and permission expiry.
-- 7 existing browser-help Node tests pass. The dashboard's inline script and
+- 10 Node tests pass, covering browser help plus dashboard rotation, missing
+  camera/measurement data and stale telemetry rendering. The dashboard's inline script and
   external operator controls pass Node syntax checking.
 - Chrome inspection verified the unified dashboard, Find, highlighted candidate,
   Guide, Stop and radar switching using simulated model/planner responses. Earlier
@@ -181,8 +184,10 @@ presents hardcoded numbers as timing measurements.
   ElevenLabs returned speech audio (not played); the configured Guardian agent
   issued a signed session URL. No microphone samples or messages were sent.
   A full Guardian conversation still needs a spoken rehearsal.
-- ROS is absent from the laptop. The existing Docker ROS base image lacks OpenCV
-  build headers, so the integrated C++ build and synthetic ROS target smoke test
-  are **pending on the Pi**. No D415, ESP32 or walking test is claimed.
+- Both ROS packages compile in an isolated ARM64 Ubuntu 24.04/Jazzy container;
+  hazard geometry, synthetic target routing and synthetic hazard pipeline tests
+  pass. Installed Pi-bridge imports/assets, HTTP startup and Ctrl-C cleanup pass.
+  The actual Pi was unreachable over SSH; its build, D415 routing and spoken
+  rehearsal remain pending. No D415, ESP32 or walking test is claimed.
 
 Feature contract: [companion/demo/specs.md](../companion/demo/specs.md).

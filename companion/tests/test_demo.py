@@ -80,7 +80,16 @@ class LaptopDemo(unittest.TestCase):
         found = self.found_chair()
         self.server.gemini.ask.return_value.update(box_2d=None,answer="I cannot see the chair now.")
         guided = self.request('/guide', {'selection_id':found['selection_id']})
-        self.assertIn('cannot see',guided['answer'])
+        self.assertIn('could not confirm',guided['answer'])
+        self.server.guidance.go_to.assert_not_called()
+
+    def test_guide_cannot_switch_to_backpack_action(self):
+        found = self.found_chair()
+        self.server.gemini.ask.return_value.update(device_action='navigate_backpack', box_2d=None)
+        guided = self.request('/guide', {'selection_id': found['selection_id']})
+        self.assertIn('could not confirm', guided['answer'])
+        self.assertEqual(guided['device_action'], 'none')
+        self.server.guidance.start.assert_not_called()
         self.server.guidance.go_to.assert_not_called()
 
     def test_find_no_match_clears_prior_selection(self):
@@ -221,6 +230,15 @@ class Launcher(unittest.TestCase):
         args=self.launch.parser_for_demo().parse_args([])
         self.assertFalse(args.viewer)
         self.assertFalse(args.standalone)
+
+    def test_pi_connection_uses_loaded_env_and_cli_overrides(self):
+        args = self.launch.parser_for_demo().parse_args([])
+        env = {'PI_LAN_IP': '192.168.1.50', 'PI_SSH_USER': 'beacon'}
+        self.assertEqual(self.launch.pi_connection(args, env), ('192.168.1.50', 'beacon'))
+        args = self.launch.parser_for_demo().parse_args(['--pi-ip', '192.168.1.60', '--pi-user', 'raspi'])
+        self.assertEqual(self.launch.pi_connection(args, env), ('192.168.1.60', 'raspi'))
+        self.assertEqual(self.launch.pi_connection(self.launch.parser_for_demo().parse_args([]),
+                        {'PI_LAN_IP': '', 'PI_SSH_USER': ''}), ('100.73.168.115', 'raspi'))
 
     def test_env_loading_is_literal_and_preserves_exported_values(self):
         with tempfile.TemporaryDirectory() as tmp:

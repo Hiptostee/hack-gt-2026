@@ -228,13 +228,13 @@ def apply_simulation(server, action, value):
             "forward": (0, "forward", 1, "front"),
             "left": (1, "left", 2, "left"),
             "right": (2, "right", 4, "right"),
-            "stop": (3, "stop", 0, "neutral"),
+            "stop": (None, "stop", 0, "neutral"),
             "neutral": (None, "idle", 0, "neutral"),
         }
         d_code, d_lbl, flags, t_lbl = dir_map.get(value, (None, "idle", 0, "neutral"))
         server.simulation["guidance"] = {
-            "active": value != "neutral",
-            "path_valid": value != "stop",
+            "active": d_code is not None,
+            "path_valid": d_code is not None,
             "hazard_permitted": True,
             "direction": d_code,
             "direction_label": d_lbl,
@@ -242,7 +242,7 @@ def apply_simulation(server, action, value):
             "tactile_label": t_lbl,
             "target_label": "backpack",
             "distance_m": 2.4,
-            "bearing_deg": -10.0 if value == "left" else (10.0 if value == "right" else 0.0),
+            "bearing_deg": 10.0 if value == "left" else (-10.0 if value == "right" else 0.0),
             "age_s": 0.02,
         }
 

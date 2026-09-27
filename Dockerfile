@@ -15,13 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     dbus-x11 \
     iproute2 \
-    libopencv-core-dev \
-    libopencv-dnn-dev \
-    libopencv-imgproc-dev \
+    libopencv-dev \
     libgl1-mesa-dri \
     mesa-utils \
     novnc \
     python3-colcon-common-extensions \
+    python3-numpy \
+    python3-opencv \
     ros-jazzy-imu-filter-madgwick \
     ros-jazzy-realsense2-camera \
     ros-jazzy-realsense2-description \
@@ -45,6 +45,7 @@ RUN mkdir -p /opt/models && \
 
 WORKDIR /workspace/ros_ws
 COPY ros_ws/src src
+COPY companion /workspace/companion
 
 RUN . /opt/ros/jazzy/setup.sh && \
     colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release

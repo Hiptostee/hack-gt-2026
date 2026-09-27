@@ -7,6 +7,46 @@ are the things that get lost.
 ---
 
 
+## 2026-09-27 — Pi deployment review and main preparation
+
+The user committed/pushed the combined integration as `ffaa730` on
+`feature/guardian`. Reviewed the deployment and runtime paths again before main.
+Remote main remains `fca5a5e`, an ancestor of guardian; current promotion can be
+fast-forward. Named-target contents are already integrated; tactile remains out
+of scope. No commit, merge or push was performed during this review.
+
+Fixed Docker's missing companion COPY before the ROS install step, made OpenCV
+development metadata explicit, and declared Pi Python camera dependencies in the
+ROS manifest. Fixed `.env` Pi connection precedence. Guide now rejects model
+actions outside the fresh named-target workflow. Dashboard rotation values 3/4,
+simulated Stop/bearing, lost telemetry clearing and missing measurement/camera
+defaults now agree with the ROS contract.
+
+Built both ROS packages successfully in a temporary ARM64 Ubuntu 24.04/Jazzy
+container with no Pi connection. Hazard geometry and synthetic ROS target/hazard
+pipelines pass. These exercise target ownership, capture-time pose, current
+distance/bearing, stale target rejection, tracking loss/recovery, arrival, depth
+holes/tilt, sensor death and audio-permission expiry. Real ROS testing also exposed
+two shutdown bugs: the target smoke test left its executor thread alive, and the
+Pi bridge tried publishing/shutting down after SIGINT had invalidated its context.
+Fixed both, then verified clean exits. The installed companion's imports,
+dashboard files and bridge HTTP startup/absent-sensor behavior also pass.
+
+212 Python tests and 10 Node tests pass; Python/JavaScript/XML/shell syntax and
+`git diff --check` pass. Laptop preflight confirms keys are present, dependency
+imports work and default audio formats are supported; it does not record sound.
+The optional full Docker viewer image was not built. No cloud audio or messages
+were sent during review. Earlier browser evidence remains simulated.
+
+Actual Pi SSH to `raspi@100.73.168.115` timed out. D415/IMU performance, the Pi's
+own rebuild and the laptop microphone/speaker/Guardian conversation still need
+the team rehearsal. Do not describe ARM64 synthetic tests as hardware success.
+`docs/Beacon-Merge-Readiness.md` records findings, evidence, remaining checks and
+the user-run main promotion commands. The runbook now installs manifest
+dependencies before rebuilding. Default movement gates remain unchanged.
+
+---
+
 ## 2026-09-27 — Unified dashboard and Find → inspect → Guide
 
 The user preferred the original dashboard's appearance, so it is now the single

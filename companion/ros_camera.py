@@ -111,4 +111,5 @@ class RosCamera:
         self.thread.join(timeout=2)
         self.executor.remove_node(self.node)
         self.node.destroy_node()
-        rclpy.shutdown()
+        # ROS's SIGINT handler may have shut down the context already.
+        rclpy.try_shutdown()

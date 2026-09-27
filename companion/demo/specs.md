@@ -25,6 +25,14 @@ audio are mutually exclusive. A lost browser heartbeat ends Guardian and stops
 navigation. Release/cancel/blur ends recording. No input is sent without action.
 
 ## Pipeline and dependencies
+Deployment review: the Pi bridge explicitly declares rclpy, NumPy and Python
+OpenCV as ROS package runtime dependencies. Container builds must copy companion
+sources before the ROS install step, which installs the shared dashboard assets.
+Guide accepts only a fresh named-target result with a valid box; an unexpected
+model action cannot switch to backpack guidance or another workflow.
+ROS cleanup must tolerate SIGINT having already shut down the context. The
+synthetic target runner joins its executor before interpreter teardown.
+
 Existing web_test HTTP server on localhost -> Gemini scene client -> timestamped
 Pi frame -> target box -> existing ROS depth/planner/status path. Preserve all
 hazard permission gates; no demo safety bypass. The laptop reuses Session for

@@ -2,9 +2,10 @@
 
 ## Current integration — 2026-09-27
 
-The current `feature/guardian` working tree combines the named-target work from
-`feature/navigate-target` (`b04eb8d`) with Guardian (`3e24163`). This is a file-level
-integration; no merge commit or push has been made. The branch snapshots below
+The `feature/guardian` branch combines the named-target work from
+`feature/navigate-target` (`b04eb8d`) with Guardian (`3e24163`), committed and pushed
+as `ffaa730`; review fixes follow in the working tree. This is a file-level
+integration; main is unchanged. The branch snapshots below
 are historical and are superseded by this section for laptop demo usage.
 
 The committed scope decision is one stationary D415 scene, one named chair and
@@ -24,10 +25,13 @@ as a stationary preview, but physical direction permission is not fabricated.
 ESP32 hardware is not required; the separate tactile branch is outside this
 integration. Demo SMS is simulated. Dashboard timing constants were removed.
 
-Software acceptance: 210 Python tests and 7 Node tests pass; the dashboard's inline
+Software acceptance: 212 Python tests and 10 Node tests pass; the dashboard's inline
 and external scripts parse. Chrome verified Find, highlighted candidate, Guide,
-Stop and the radar switch using simulated model/planner responses. Pi build, live D415 routing and
-full spoken Guardian rehearsal remain required. See the executable setup and
+Stop and the radar switch using simulated model/planner responses. ARM64 Ubuntu
+24.04/Jazzy compilation, synthetic ROS target/hazard tests, and installed bridge
+startup/cleanup now pass. Actual Pi build, live D415 routing and full spoken
+Guardian rehearsal remain required; configured Pi SSH timed out. See
+[merge readiness](docs/Beacon-Merge-Readiness.md) and the executable setup and
 judging sequence in [docs/Beacon-Laptop-Demo.md](docs/Beacon-Laptop-Demo.md).
 
 

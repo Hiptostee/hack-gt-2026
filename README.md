@@ -5,6 +5,8 @@
 The two feature branches are integrated in this working tree for one stationary
 scene → named chair → Guardian demonstration, using the laptop microphone and
 speakers. Start with the [demo runbook](docs/Beacon-Laptop-Demo.md).
+The [review and main handoff](docs/Beacon-Merge-Readiness.md) records ARM64 ROS
+build/test evidence and the remaining hardware rehearsal.
 
 ```bash
 python3 -B scripts/demo_preflight.py

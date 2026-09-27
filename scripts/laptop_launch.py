@@ -39,8 +39,8 @@ def load_env(path, env):
 
 def parser_for_demo():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pi-ip", default=os.environ.get("PI_LAN_IP", "100.73.168.115"))
-    parser.add_argument("--pi-user", default=os.environ.get("PI_SSH_USER", "raspi"))
+    parser.add_argument("--pi-ip", help="Pi address; overrides PI_LAN_IP from environment/.env")
+    parser.add_argument("--pi-user", help="SSH user; overrides PI_SSH_USER from environment/.env")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
     parser.add_argument("--viewer", action="store_true", help="Also launch Docker RViz (optional)")
     parser.add_argument("--standalone", action="store_true", help="Laptop webcam rehearsal, without Pi/depth routing")
@@ -55,6 +55,11 @@ def port_open(port):
             return True
     except OSError:
         return False
+
+
+def pi_connection(args, env):
+    return (args.pi_ip or env.get("PI_LAN_IP") or "100.73.168.115",
+            args.pi_user or env.get("PI_SSH_USER") or "raspi")
 
 
 def wait_for_bridge(tunnel, timeout=30):
@@ -99,6 +104,7 @@ def main():
         load_env(args.env_file, env)
     except ValueError as error:
         parser.error(str(error))
+    args.pi_ip, args.pi_user = pi_connection(args, env)
     env["GUARDIAN_SMS"] = "fake"
     if not env.get("GEMINI_API_KEY"):
         if not sys.stdin.isatty():

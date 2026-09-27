@@ -421,6 +421,11 @@ class Handler(BaseHTTPRequestHandler):
                     resp.update(workflow="not_found", answer=(result["answer"] if image_jpeg else
                                 "No camera image is available. Connect the camera and find the object again."))
                 return
+            if locate_only and (result["device_action"] != "navigate_target"
+                                or not result.get("box_2d") or not image_jpeg):
+                resp["answer"] = "I could not confirm the selected object in a fresh image. Find it again before requesting guidance."
+                resp["device_action"] = "none"
+                return
             if (result["device_action"] == "navigate_target" and result["box_2d"] is not None
                     and image_jpeg):
                 resp["target"] = result["target"]
@@ -1641,16 +1646,20 @@ async function pollDebugState() {
   isPolling = true;
   try {
     const t0 = performance.now();
-    const res = await fetch('/debug/state');
+    const res = await fetch('/debug/state', {signal: AbortSignal.timeout(2000)});
     const rtt = Math.round(performance.now() - t0);
-    if (!res.ok) return;
+    if (!res.ok) throw Error('Telemetry unavailable');
     const d = await res.json();
     lastTelemetry = d;
     updateHud(d, rtt);
     if (currentLeftView === 'map') {
       drawPlannerRadar(d);
     }
-  } catch (err) {}
+  } catch (err) {
+    lastTelemetry = {telemetry_unavailable: true};
+    updateHud(lastTelemetry, null);
+    if (currentLeftView === 'map') drawPlannerRadar(lastTelemetry);
+  }
   finally { isPolling = false; }
 }
 
@@ -1663,19 +1672,11 @@ function updateHud(d, rtt) {
   });
 
   // Update Vitals Meter
-  if (rtt != null) {
-    $('vital-rtt').textContent = rtt + 'ms';
-  }
+  $('vital-rtt').textContent = rtt != null ? rtt + 'ms' : '—';
   const v = d.vitals || {};
-  if (v.depth_fps != null) {
-    $('vital-cam').textContent = `${v.depth_fps} FPS · ${v.depth_latency_ms || 33}ms`;
-  }
-  if (v.hazard_loop_ms != null) {
-    $('vital-haz').textContent = `${v.hazard_loop_ms}ms`;
-  }
-  if (v.planner_loop_ms != null) {
-    $('vital-plan').textContent = `${v.planner_loop_ms}ms`;
-  }
+  $('vital-cam').textContent = v.depth_fps != null ? `${v.depth_fps} FPS · ${v.depth_latency_ms != null ? v.depth_latency_ms + 'ms' : 'unmeasured'}` : 'UNMEASURED';
+  $('vital-haz').textContent = v.hazard_loop_ms != null ? `${v.hazard_loop_ms}ms` : 'UNMEASURED';
+  $('vital-plan').textContent = v.planner_loop_ms != null ? `${v.planner_loop_ms}ms` : 'UNMEASURED';
   const budgetPass = v.safety_budget_pass === true;
   $('vital-budget').className = 'vital-pill ' + (budgetPass ? 'ok' : 'alert');
   $('vital-budget').textContent = v.safety_budget_pass == null ? 'LATENCY UNMEASURED' : budgetPass ? 'LATENCY <100ms' : 'LATENCY EXCEEDED';
@@ -1685,6 +1686,9 @@ function updateHud(d, rtt) {
   if (d.simulation_active) {
     simPill.textContent = 'SIMULATION OVERRIDE';
     simPill.className = 'hud-pill warn';
+  } else if (d.telemetry_unavailable) {
+    simPill.textContent = 'TELEMETRY UNAVAILABLE';
+    simPill.className = 'hud-pill alert';
   } else {
     simPill.textContent = 'LIVE TELEMETRY';
     simPill.className = 'hud-pill idle';
@@ -1692,8 +1696,8 @@ function updateHud(d, rtt) {
 
   // Update Camera Status & Freshness
   const cam = d.camera || {};
-  $('hud-cam-status').textContent = 'CAM: ' + (cam.status || 'READY').toUpperCase();
-  if (cam.age_s != null && cam.age_s > 1.5) {
+  $('hud-cam-status').textContent = 'CAM: ' + (cam.status || 'UNKNOWN').toUpperCase();
+  if (cam.status !== 'Ready' || (cam.age_s != null && cam.age_s > 1.5)) {
     $('hud-cam-status').className = 'hud-pill alert';
   } else {
     $('hud-cam-status').className = 'hud-pill ok';
@@ -1721,7 +1725,8 @@ function updateHud(d, rtt) {
     0: { icon: '↑', text: 'FORWARD', sub: 'Proceed straight along route', cls: 'forward' },
     1: { icon: '↰', text: 'TURN LEFT', sub: 'Bear left towards route', cls: 'turn' },
     2: { icon: '↱', text: 'TURN RIGHT', sub: 'Bear right towards route', cls: 'turn' },
-    3: { icon: '🛑', text: 'STOP / ARRIVED', sub: 'Destination reached or stop commanded', cls: 'stop' }
+    3: { icon: '↶', text: 'ROTATE LEFT', sub: 'Rotate left towards route', cls: 'turn' },
+    4: { icon: '↷', text: 'ROTATE RIGHT', sub: 'Rotate right towards route', cls: 'turn' }
   };
 
   if (g.direction != null && dirMap[g.direction]) {

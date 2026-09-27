@@ -17,6 +17,7 @@ import rclpy
 from geometry_msgs.msg import PointStamped, TransformStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.duration import Duration
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
@@ -121,7 +122,13 @@ class Feeder(Node):
 def main():
     rclpy.init()
     node = Feeder()
-    threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
+    def spin():
+        try:
+            rclpy.spin(node)
+        except ExternalShutdownException:
+            pass
+    spin_thread = threading.Thread(target=spin, daemon=True)
+    spin_thread.start()
     failures = []
 
     def check(name, condition, detail=""):
@@ -190,6 +197,10 @@ def main():
     check("clear is acknowledged", node.wait_for("ahead", "cleared") is not None)
 
     rclpy.shutdown()
+    spin_thread.join(timeout=5)
+    check("ROS executor shut down cleanly", not spin_thread.is_alive())
+    if not spin_thread.is_alive():
+        node.destroy_node()
     print("ALL PASSED" if not failures else f"{len(failures)} FAILED: {failures}")
     sys.exit(1 if failures else 0)
 
