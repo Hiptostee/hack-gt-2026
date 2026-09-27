@@ -26,6 +26,10 @@ In scope: the network, the packet, the laptop sender, the ESP32 firmware
 
 ## 2. Network
 
+The host-network and feature-branch integration contract is recorded in
+[COMPATIBILITY.md](COMPATIBILITY.md), including Pi voice ownership and the
+remaining Guardian/hazard integration gates.
+
 ```
    Pi ROS guidance ── SSH tunnel ──▶ laptop ── Wi-Fi UDP :4210 ──▶ two ESP32 hands
 ```
@@ -36,7 +40,7 @@ In scope: the network, the packet, the laptop sender, the ESP32 firmware
 - Each hand gets an address through DHCP and advertises `tactile-left.local` or
   `tactile-right.local` over mDNS. The laptop launcher accepts explicit hand IPs
   if the network does not pass mDNS.
-- The Pi remains reachable over Tailscale. The laptop polls its bridge over the
+- The Pi is reachable over Tailscale or the host's LAN (`--pi-ip`). The laptop polls its bridge over the
   SSH tunnel, then unicasts the three-byte packet to each hand at 20 Hz.
 - The old Pi hotspot and C++ sender are retained as standalone test tools. They
   are not used by the integrated laptop launch.
@@ -75,6 +79,12 @@ and the voice guidance gate. Direction codes 0/1/2/3/4 map to
 front/left/right/left/right. A missing, invalid or stale state sends neutral.
 The ESP32 also returns to rest after 500 ms without packets. The laptop launch
 starts the sender automatically.
+
+With Pi voice enabled on the combined branch, the HTTP bridge observes the
+voice-owned guidance gate (`PI_VOICE=1` or `--observe-guidance`) and never
+publishes a competing gate. Its observed gate and direction expire after 0.6 s;
+path validity expires after 1.5 s, and host HTTP state after 0.4 s. These stages
+are not a single end-to-end timeout. Run the host with `--no-voice` in this mode.
 
 The original C++ sender below remains useful for direct packet and hardware tests.
 
@@ -162,6 +172,10 @@ boards; `TACTILE_HAND_RIGHT` picks the side. Setup and flashing are in
      idle servo doesn't hum or jitter.
    - Rest angle, sweep width, sweep period and the 0°/180° pulse calibration
      (500/2400 µs) are all set in `config.h`.
+   - Configurable travel limits (`TACTILE_MIN_DEG` / `TACTILE_MAX_DEG`, default
+     30°/150°) bound every position command. The sweep shrinks symmetrically
+     around a shifted rest angle to fit both limits. Invalid rest/limit settings
+     fail compilation. These limits do not sense torque or detect a blocked servo.
 7. **Diagnostics:** the status LED (solid / slow / fast blink = receiving / Wi-Fi only /
    no Wi-Fi) and a timestamped serial log, including a loss/gap/RSSI report every 5 s.
 8. **Power:** the SG90 runs from its own 5 V supply with a shared ground and a bulk

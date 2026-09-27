@@ -1,4 +1,4 @@
-// One hand: Wi-Fi station on the laptop's network, UDP receiver, servo driver.
+// One hand: Wi-Fi station on the sender's reachable network, UDP receiver, servo driver.
 //
 // Receive rules match tools/tactile_listen.cpp on the Pi side: decode, drop
 // packets whose seq is not newer, return the servo to rest after
@@ -101,7 +101,7 @@ void servo_pulse(uint32_t pulse_us) {
 }
 
 uint32_t pulse_for_degrees(float degrees) {
-  degrees = constrain(degrees, 0.0f, 180.0f);
+  degrees = constrain(degrees, float(TACTILE_MIN_DEG), float(TACTILE_MAX_DEG));
   return TACTILE_PULSE_0_US +
          static_cast<uint32_t>((TACTILE_PULSE_180_US - TACTILE_PULSE_0_US) * degrees / 180.0f);
 }
@@ -114,7 +114,10 @@ void update_servo(uint32_t now) {
   if (sweeping) {
     const float phase =
         static_cast<float>((now - sweep_start_ms) % TACTILE_SWEEP_PERIOD_MS) / TACTILE_SWEEP_PERIOD_MS;
-    const float degrees = TACTILE_REST_DEG + TACTILE_SWEEP_DEG * sinf(2.0f * PI * phase);
+    const float room_left = TACTILE_REST_DEG - TACTILE_MIN_DEG;
+    const float room_right = TACTILE_MAX_DEG - TACTILE_REST_DEG;
+    const float sweep = fminf(TACTILE_SWEEP_DEG, fminf(room_left, room_right));
+    const float degrees = TACTILE_REST_DEG + sweep * sinf(2.0f * PI * phase);
     servo_pulse(pulse_for_degrees(degrees));
   } else if (!released) {
     if (TACTILE_RELEASE_AFTER_MS > 0 && now - rest_since_ms >= TACTILE_RELEASE_AFTER_MS) {
@@ -158,7 +161,7 @@ void maintain_wifi(uint32_t now) {
     // Modem sleep adds 100-300 ms of receive latency; keep the radio awake.
     WiFi.setSleep(false);
     mdns_up = MDNS.begin(kHostname);
-    if (!mdns_up) LOG("mDNS failed; use the logged IP address on the laptop");
+    if (!mdns_up) LOG("mDNS failed; use the logged IP address on the sender");
     udp.stop();
     udp_ready = false;
     LOG("wifi up: %s, channel %d, rssi %d dBm", WiFi.localIP().toString().c_str(),

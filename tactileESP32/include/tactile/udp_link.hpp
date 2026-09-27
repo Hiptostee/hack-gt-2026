@@ -25,8 +25,8 @@ struct Target {
   uint16_t port;
 };
 
-// Addresses from SPEC.md: the Pi hotspot is 10.42.0.1/24 and the hands use
-// static addresses below NetworkManager's DHCP pool (.10 - .254).
+// Legacy Pi-hotspot addresses only. On GTother (or any DHCP network), set
+// LinkConfig::targets to the actual IPv4 addresses printed by the hands.
 std::vector<Target> default_targets();
 
 struct LinkConfig {

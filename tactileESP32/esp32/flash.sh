@@ -25,7 +25,7 @@ FQBN="esp32:esp32:esp32"
 BUILD="$DIR/build/$HAND"
 
 if [ ! -f "$DIR/tactile_hand/secrets.h" ]; then
-  echo "missing tactile_hand/secrets.h: copy secrets.example.h and set the hotspot password" >&2
+  echo "missing tactile_hand/secrets.h: copy secrets.example.h and set the Wi-Fi SSID and key" >&2
   exit 1
 fi
 

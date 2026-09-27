@@ -21,6 +21,14 @@
 #ifndef TACTILE_REST_DEG
 #define TACTILE_REST_DEG 90
 #endif
+// Mechanical travel limits for the assembled hand. Tune each board separately.
+// The sweep automatically shrinks symmetrically around REST to fit these limits.
+#ifndef TACTILE_MIN_DEG
+#define TACTILE_MIN_DEG 30
+#endif
+#ifndef TACTILE_MAX_DEG
+#define TACTILE_MAX_DEG 150
+#endif
 #ifndef TACTILE_SWEEP_DEG
 #define TACTILE_SWEEP_DEG 60
 #endif
@@ -36,6 +44,15 @@
 #ifndef TACTILE_PULSE_180_US
 #define TACTILE_PULSE_180_US 2400
 #endif
+
+static_assert(TACTILE_MIN_DEG >= 0 && TACTILE_MAX_DEG <= 180 &&
+              TACTILE_MIN_DEG < TACTILE_MAX_DEG, "Invalid servo travel limits");
+static_assert(TACTILE_REST_DEG >= TACTILE_MIN_DEG &&
+              TACTILE_REST_DEG <= TACTILE_MAX_DEG, "Neutral must be inside travel limits");
+static_assert(TACTILE_SWEEP_DEG >= 0 && TACTILE_SWEEP_PERIOD_MS > 0,
+              "Invalid servo sweep settings");
+static_assert(TACTILE_PULSE_0_US > 0 && TACTILE_PULSE_0_US < TACTILE_PULSE_180_US &&
+              TACTILE_PULSE_180_US < 20000, "Invalid servo pulse endpoints");
 
 // After returning to rest, stop the pulses after this long so the idle servo
 // does not hum or jitter. 0 keeps holding the rest angle.

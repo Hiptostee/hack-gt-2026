@@ -5,6 +5,7 @@ import threading
 import unittest
 from http.server import HTTPServer
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 from unittest import mock
 
 from companion.voice.web_test import Handler
@@ -52,6 +53,12 @@ class WebRosVoice(unittest.TestCase):
             remote.stop()
             pi.guidance.start.assert_called_once()
             pi.guidance.stop.assert_called_once()
+            pi.guidance.read_only = True
+            with self.assertRaises(HTTPError) as blocked:
+                urlopen(Request(remote.url + "/guidance/start", method="POST"))
+            self.assertEqual(blocked.exception.code, 409)
+            blocked.exception.close()
+            pi.guidance.start.assert_called_once()
         finally:
             pi.shutdown()
             pi.server_close()

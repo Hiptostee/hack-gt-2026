@@ -9,6 +9,23 @@ serial ports and troubleshooting, is in [../BUILD.md](../BUILD.md), section 3.
 signal uses **GPIO 18**, matching `TACTILE_SERVO_PIN` in
 [`tactile_hand/config.h`](tactile_hand/config.h).
 
+## Neutral and travel limits
+
+The independent Arduino IDE tester is in [the repository’s `servo_test/` folder](../../servo_test/README.md).
+It is not part of this firmware and does not change its configuration.
+
+For each hand, adjust `TACTILE_REST_DEG` in `tactile_hand/config.h` to its relaxed
+neutral position. Set `TACTILE_MIN_DEG` and `TACTILE_MAX_DEG` to the usable range
+of the assembled mechanism (defaults 30–150°). The sweep automatically shrinks
+around neutral to stay within both limits, even when `TACTILE_SWEEP_DEG` is
+larger. Invalid limits or a neutral outside the limits fail compilation.
+
+The existing stop/disconnect behavior returns to neutral and releases PWM after
+`TACTILE_RELEASE_AFTER_MS` (default 500 ms). Keep that positive to avoid holding
+idle load. These are position limits, not torque sensing: the servo can still
+stall against an obstruction inside the range. Tune with the mechanism unloaded
+first and narrow the limits if needed. Reflash each hand after configuration.
+
 ## Wiring: one 4 × AA pack per hand, no external regulator
 
 Repeat this wiring for each hand. The battery feeds the servo and ESP32 through
@@ -77,6 +94,11 @@ input at a time. Never connect the AA pack to **3V3** or power the servo from
 **3V3**.
 
 ## Setup
+
+For **GTother**, use [the Pi/ESP32 walkthrough](../GTOTHER.md). The example
+secrets file now selects `GTother`; enter its Wi-Fi key before flashing. The
+firmware already uses DHCP and accepts packets from either a reachable Pi or
+laptop sender. No Pi IP needs to be compiled into the boards.
 
 1. Install [PlatformIO](https://platformio.org/install) (`brew install platformio`, or
    the PlatformIO IDE extension for VS Code). The first build downloads the ESP32

@@ -34,6 +34,32 @@ void packet(uint8_t seq, uint8_t flags) {
   udp.queued.push_back({tactile::kMagic, seq, flags});
 }
 
+void test_calibrated_travel_limits() {
+  reset_hand();
+  CHECK(pulse_for_degrees(-90) == pulse_for_degrees(TACTILE_MIN_DEG));
+  CHECK(pulse_for_degrees(270) == pulse_for_degrees(TACTILE_MAX_DEG));
+  sweeping = true;
+  sweep_start_ms = fake_ms;
+  const uint32_t started = fake_ms;
+  const auto duty_for = [](float degrees) {
+    return uint64_t(pulse_for_degrees(degrees)) * ((1u << 16) - 1) / 20000;
+  };
+  for (uint32_t step = 20; step <= TACTILE_SWEEP_PERIOD_MS; step += 20) {
+    fake_ms = started + step;
+    update_servo(fake_ms);
+    CHECK(pwm_writes.back() >= duty_for(TACTILE_MIN_DEG));
+    CHECK(pwm_writes.back() <= duty_for(TACTILE_MAX_DEG));
+  }
+#if TACTILE_REST_DEG == 140 && TACTILE_MIN_DEG == 30 && TACTILE_MAX_DEG == 150
+  // A shifted neutral must reduce the whole sweep, not flatten it at an end.
+  last_servo_frame_ms = started;
+  update_servo(started + TACTILE_SWEEP_PERIOD_MS / 4);
+  CHECK(pwm_writes.back() == duty_for(150));
+  update_servo(started + 3 * TACTILE_SWEEP_PERIOD_MS / 4);
+  CHECK(pwm_writes.back() == duty_for(130));
+#endif
+}
+
 void test_malformed_recovery() {
   reset_hand();
   udp.queued.push_back({tactile::kMagic, 0, tactile::kFront, 0});
@@ -162,6 +188,7 @@ void test_busy_socket_and_reconnect() {
 }  // namespace
 
 int main() {
+  test_calibrated_travel_limits();
   test_slow_wifi_startup();
   test_malformed_recovery();
   test_outage_gap_reporting();

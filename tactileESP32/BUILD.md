@@ -1,5 +1,9 @@
 # Build and setup
 
+**Using GTother instead of the Pi hotspot:** follow [GTOTHER.md](GTOTHER.md)
+for registration, Wi-Fi credentials, flashing and direct Pi-to-hand testing.
+Skip section 2 below for that setup and pass each hand's actual DHCP address.
+
 This file covers standalone Pi sender and hotspot testing. The integrated demo
 sends from the laptop: flash both hands with the laptop's 2.4 GHz Wi-Fi credentials
 and run `python3 scripts/laptop_launch.py` from the repository root. The sender
@@ -251,6 +255,7 @@ Everything is in [esp32/tactile_hand/config.h](esp32/tactile_hand/config.h). Re-
 | The sweep is too fast or too slow | `TACTILE_SWEEP_PERIOD_MS` (default 1000) |
 | The arm buzzes or strains at one end | Move `TACTILE_PULSE_0_US` / `TACTILE_PULSE_180_US` toward 1500 |
 | The rest position isn't centred on the hand | `TACTILE_REST_DEG` |
+| Movement presses against the mechanism | Narrow `TACTILE_MIN_DEG` / `TACTILE_MAX_DEG`; the sweep automatically shrinks around rest to fit |
 | The arm droops at rest | `TACTILE_RELEASE_AFTER_MS 0` (keeps holding, but may hum) |
 | The servo is wired to a different pin | `TACTILE_SERVO_PIN` |
 

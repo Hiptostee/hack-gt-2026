@@ -3,6 +3,74 @@
 Decisions and work on the Pi → ESP32 direction link, newest first. The current
 design is in [SPEC.md](SPEC.md).
 
+## 2026-09-26: automatic battery-powered servo test
+
+Changed root `servo_test/` to run once at boot with no Serial commands:
+90° neutral, slow move to 60°, slow move to 120°, then slow return to 90°.
+Intermediate positions pause two seconds; final neutral holds PWM indefinitely
+as requested. Power cycling repeats the sequence. The hand firmware's release
+and travel limits are unchanged. Added upload troubleshooting for the reported
+921600-baud flash failure; hardware upload remains unverified.
+
+## 2026-09-26: independent servo tester and bounded hand travel
+
+Moved the standalone sketch out of the hand project to root `servo_test/` for
+Arduino IDE use only. It starts at neutral, supports small ±10° movement tests
+and neutral adjustment, and releases PWM after each one-second move. It neither
+imports nor writes tactile configuration.
+
+Hand firmware now has configurable minimum/maximum angles, validates its rest
+angle at compile time, and reduces sweep amplitude symmetrically to fit the
+available travel around rest. Idle/disconnect still returns to neutral and
+releases PWM. Position limits do not detect torque or obstructions.
+Validated both ESP32 builds with the pinned toolchain, plus simulated left,
+right, and shifted-neutral receivers. The shifted-neutral test verifies a
+140° rest produces a 130–150° sweep rather than driving past its upper limit.
+No physical servo was flashed or tested.
+
+## 2026-09-26: standalone servo neutral calibration
+
+Added `esp32/servo_neutral/servo_neutral.ino`: GPIO 18, 50 Hz PWM with the same
+pulse endpoints as the hand firmware. Serial commands adjust the rest angle,
+release/hold the servo, and print the `TACTILE_REST_DEG` value and maximum
+in-range sweep. No Wi-Fi or extra libraries; settings are intentionally volatile.
+Flash the normal hand firmware again after transferring each hand's calibration.
+Verified: standalone PlatformIO build succeeds for `esp32dev` with the repo's
+pinned Arduino-ESP32 3.3.12 toolchain. Not flashed or tested on a physical servo.
+
+## 2026-09-26: compatibility validation follow-up
+
+All 60 companion tests and four CTest tests pass. Added a real localhost
+HTTP-to-UDP subprocess regression covering matching two-hand sends, rotation
+mapping, invalid path, stop, sustained neutral on bridge loss, and SIGINT exit.
+Python and Pi launcher syntax checks and `git diff --check` pass.
+
+Temporary three-way merge checks include the uncommitted compatibility edits:
+Guardian's reviewed integration files merge textually and retain non-ICP plus
+Pi voice startup; named-target requires conflict resolution in guidance and
+the HTTP bridge. No branch was merged. Guardian entry, hazard inhibition and
+physical Pi/ESP32 acceptance remain outstanding as documented in the review.
+
+## 2026-09-26: host-network and feature compatibility review
+
+Reviewed fetched main, Guardian and named-target heads; details and exact
+revisions are in [COMPATIBILITY.md](COMPATIBILITY.md). The host sends directly
+to DHCP/mDNS hands; the canonical plan's Pi AP topology is stale. The Pi retains
+ROS compute. Neither feature branch was merged.
+
+Added host `--no-voice` for Guardian's on-Pi voice deployment and a read-only
+guidance observer for the Pi HTTP bridge (`PI_VOICE=1` / `--observe-guidance`).
+This prevents a second gate publisher and expires the observed owner's
+heartbeat. Added regression checks for ownership, expiry, HTTP mutation
+rejection and transport-only startup.
+
+Remaining integration requirements include preserving named-target and tactile
+interfaces together, stopping navigation on Guardian entry (missing in its
+current code), and implementing hazard/audio-fault guidance inhibition.
+Hardware validation is still outstanding; host tests are not a wearable demo.
+Validation: 59 companion tests and all four CTest tests passed, including local
+HTTP/UDP tests with socket permissions. C++ Release build and diff checks passed.
+
 ## 2026-09-26: follow-up review — startup, outage reports, hotspot updates
 
 **Fixed**

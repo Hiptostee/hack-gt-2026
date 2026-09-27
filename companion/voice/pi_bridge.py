@@ -1,6 +1,7 @@
 """Pi-only camera and navigation bridge. Gemini credentials stay on the laptop."""
 import argparse
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -35,6 +36,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        if getattr(self.server.guidance, "read_only", False) is True:
+            return self._send(409, {"error": "Guidance is controlled by the on-device voice companion."},
+                              "application/json")
         if self.path == "/guidance/start":
             answer = self.server.guidance.start()
         elif self.path == "/guidance/stop":
@@ -93,12 +97,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--topic", default="/camera/color/image_raw")
     parser.add_argument("--port", type=int, default=8081)
+    parser.add_argument("--observe-guidance", action="store_true",
+                        default=os.environ.get("PI_VOICE", "0") == "1",
+                        help="Observe the Pi voice guidance gate without publishing it (PI_VOICE=1)")
     args = parser.parse_args()
     from companion.ros_camera import RosCamera
     from companion.voice.guidance import RosGuidance
 
     camera = RosCamera(args.topic)
-    guidance = RosGuidance()
+    guidance = RosGuidance(read_only=args.observe_guidance)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.camera = camera
     server.guidance = guidance

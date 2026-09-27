@@ -65,13 +65,15 @@ def main():
     parser.add_argument("--left-hand", default=os.environ.get("TACTILE_LEFT_HOST", "tactile-left.local"))
     parser.add_argument("--right-hand", default=os.environ.get("TACTILE_RIGHT_HOST", "tactile-right.local"))
     parser.add_argument("--no-tactile", action="store_true", help="Run without the ESP32 hands")
+    parser.add_argument("--no-voice", action="store_true",
+                        help="Only run transport, tactile and RViz; voice runs on the Pi")
     args = parser.parse_args()
 
-    if port_open(8080) or port_open(8081):
+    if (not args.no_voice and port_open(8080)) or port_open(8081):
         parser.error("Port 8080 or 8081 is already in use. Stop the old web server or SSH tunnel first.")
 
     env = os.environ.copy()
-    if not env.get("GEMINI_API_KEY"):
+    if not args.no_voice and not env.get("GEMINI_API_KEY"):
         if not sys.stdin.isatty():
             parser.error("Set GEMINI_API_KEY before starting the laptop launcher.")
         env["GEMINI_API_KEY"] = getpass.getpass("Gemini API key: ").strip()
@@ -93,18 +95,19 @@ def main():
         ], cwd=ROOT)
         wait_for_bridge(tunnel)
 
-        print("Starting local Gemini voice page...", flush=True)
-        voice = subprocess.Popen([
-            sys.executable, "-m", "companion.voice.web_test", "--pi-url",
-            "http://127.0.0.1:8081", "--no-open",
-        ], cwd=ROOT, env=env)
-        deadline = time.monotonic() + 15
-        while not port_open(8080):
-            if voice.poll() is not None:
-                raise RuntimeError("The Gemini web service exited during startup.")
-            if time.monotonic() > deadline:
-                raise RuntimeError("The Gemini web service did not open port 8080.")
-            time.sleep(0.2)
+        if not args.no_voice:
+            print("Starting local Gemini voice page...", flush=True)
+            voice = subprocess.Popen([
+                sys.executable, "-m", "companion.voice.web_test", "--pi-url",
+                "http://127.0.0.1:8081", "--no-open",
+            ], cwd=ROOT, env=env)
+            deadline = time.monotonic() + 15
+            while not port_open(8080):
+                if voice.poll() is not None:
+                    raise RuntimeError("The Gemini web service exited during startup.")
+                if time.monotonic() > deadline:
+                    raise RuntimeError("The Gemini web service did not open port 8080.")
+                time.sleep(0.2)
 
         if not args.no_tactile:
             print("Starting laptop-to-ESP32 tactile sender...", flush=True)
@@ -115,8 +118,10 @@ def main():
 
         print("Starting Docker RViz viewer...", flush=True)
         viewer = subprocess.Popen(compose + ["up", "rviz-viewer", "--build"], cwd=ROOT, env=viewer_env)
-        webbrowser.open("http://localhost:8080")
-        print("Voice: http://localhost:8080 | RViz: localhost:5901 | Ctrl-C stops laptop services", flush=True)
+        if not args.no_voice:
+            webbrowser.open("http://localhost:8080")
+        voice_status = "Voice: on Pi" if args.no_voice else "Voice: http://localhost:8080"
+        print(f"{voice_status} | RViz: localhost:5901 | Ctrl-C stops laptop services", flush=True)
         while True:
             for label, process in (("SSH tunnel", tunnel), ("voice page", voice),
                                    ("tactile sender", tactile), ("RViz viewer", viewer)):

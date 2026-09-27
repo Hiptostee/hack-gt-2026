@@ -109,7 +109,8 @@ void print_stats(const tactile::TactileLink& link) {
 void usage(const char* program) {
   std::fprintf(stderr,
                "usage: %s [--left IP[:PORT]] [--right IP[:PORT]] [--rate HZ] [--demo] [--trace]\n"
-               "  defaults: left 10.42.0.2:%u, right 10.42.0.3:%u, rate 20 Hz (2 < HZ <= 1000)\n",
+               "  defaults: left 10.42.0.2:%u, right 10.42.0.3:%u, rate 20 Hz (2 < HZ <= 1000)\n"
+               "  GTother/DHCP: pass --left and --right using each hand's logged IPv4 address.\n",
                program, tactile::kUdpPort, tactile::kUdpPort);
 }
 

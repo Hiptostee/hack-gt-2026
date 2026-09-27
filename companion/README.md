@@ -92,6 +92,15 @@ bridge supplies `/backpack/direction` and route validity through the SSH tunnel.
 The laptop sends neutral when guidance ends, the route is invalid, or fresh
 direction data stops. Use `--no-tactile` while testing without the hands.
 
+For integration with the Guardian branch's on-Pi voice demo, the host supports
+`python3 scripts/laptop_launch.py --no-voice`: tunnel, tactile and RViz only,
+without a host Gemini key or browser voice. On the combined branch,
+`PI_VOICE=1` must be exported to the Pi launch and bridge; the bridge then
+observes the Pi voice guidance gate instead of owning it. This checkout does
+not yet include Guardian or Pi voice startup. See the
+[compatibility review](../tactileESP32/COMPATIBILITY.md) for remaining merge and
+hardware gates, especially Guardian entry stopping navigation.
+
 Open `http://localhost:8080`. Click and hold the browser button to speak through
 the laptop microphone, then release it. The laptop fetches one current JPEG from
 the Pi through the tunnel and sends the audio and JPEG to Gemini from the laptop.
