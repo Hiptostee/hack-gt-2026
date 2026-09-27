@@ -12,6 +12,7 @@ int failures = 0;
 
 void reset_hand() {
   fake_ms = 100;
+  Serial = FakeSerial{};
   pwm_writes.clear();
   WiFi = FakeWiFi{};
   udp = WiFiUDP{};
@@ -174,6 +175,11 @@ void test_busy_socket_and_reconnect() {
   WiFi.connected = false;
   hand_loop();
   CHECK(!receiving && !sweeping);
+  fake_ms += 10000;
+  hand_loop();
+  CHECK(WiFi.modes.size() >= 3);
+  CHECK(WiFi.modes[WiFi.modes.size() - 2] == WIFI_OFF);
+  CHECK(WiFi.modes.back() == WIFI_STA);
   WiFi.connected = true;
   udp.bind_failures = 1;
   hand_loop();

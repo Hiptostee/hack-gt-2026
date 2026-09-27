@@ -4,7 +4,7 @@
 // deliberately C++11, header-only and free of the standard library so the
 // Arduino-ESP32 toolchain can include it unchanged. See ../SPEC.md.
 //
-// Packet (3 bytes, sent by unicast UDP to every hand):
+// Packet (3 bytes, sent by unicast UDP or USB serial to a hand):
 //
 //   byte 0  magic   0xA5
 //   byte 1  seq     sender counter, +1 per packet, wraps 255 -> 0

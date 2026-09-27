@@ -134,6 +134,32 @@ definition. (On Windows, enable git symlinks, or copy the file.)
 
 ## Behaviour
 
+### USB packet test
+
+The hand firmware can read the same three-byte direction packet from USB serial
+at 115200 baud. For a USB-only test build, compile with
+`-DTACTILE_USB_ONLY=1` and set `-DTACTILE_HAND_RIGHT=1` for a right-hand board.
+That build does not start Wi-Fi. Opening the serial port can reset an ESP32
+DevKit; the sender waits two seconds before transmitting.
+
+From the repository root, after flashing the USB-only build, run:
+
+```bash
+arduino-cli compile --fqbn esp32:esp32:esp32 \
+  --build-path /tmp/tactile-right-usb \
+  --build-property 'compiler.cpp.extra_flags=-DTACTILE_HAND_RIGHT=1 -DTACTILE_USB_ONLY=1' \
+  tactileESP32/esp32/tactile_hand
+arduino-cli upload --fqbn esp32:esp32:esp32 --board-options UploadSpeed=115200 \
+  --input-dir /tmp/tactile-right-usb --port /dev/cu.usbserial-10 --verify
+python3 -m pip install pyserial
+python3 -m tactileESP32.tools.tactile_serial_test --port /dev/cu.usbserial-10
+```
+
+The test sends neutral, front, left, right, then neutral at 20 Hz and prints the
+board's serial state log. A right-hand servo sweeps for front and right, and
+rests for left and neutral. The 500 ms packet failsafe still applies. Flash a
+normal build without `TACTILE_USB_ONLY` when ready to use Wi-Fi UDP again.
+
 | Packet  | Left servo | Right servo |
 |---------|------------|-------------|
 | front   | sweeps | sweeps |

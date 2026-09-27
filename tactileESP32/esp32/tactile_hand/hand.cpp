@@ -1,4 +1,4 @@
-// One hand: Wi-Fi station on the sender's reachable network, UDP receiver, servo driver.
+// One hand: UDP or USB serial packet receiver and servo driver.
 //
 // Receive rules match tools/tactile_listen.cpp on the Pi side: decode, drop
 // packets whose seq is not newer, return the servo to rest after
@@ -36,6 +36,7 @@ const uint32_t kReportPeriodMs = 5000;
 const uint32_t kUdpRetryMs = 1000;
 // Bound receive work so a busy socket cannot starve PWM and the failsafe.
 const int kMaxPacketsPerLoop = 64;
+const int kMaxSerialBytesPerLoop = 192;
 
 // 180-degree servo: the pulse width sets the arm angle. While a direction is
 // active the arm sweeps back and forth around the rest angle along a sine, so
@@ -69,6 +70,8 @@ bool have_packet = false;  // retain gap timing across failsafes and reconnects
 uint8_t last_seq = 0;
 uint32_t last_packet_ms = 0;
 uint8_t current_flags = 0;
+uint8_t serial_packet[tactile::kPacketSize] = {};
+size_t serial_length = 0;
 
 bool sweeping = false;
 uint32_t sweep_start_ms = 0;
@@ -148,11 +151,23 @@ void apply(uint8_t flags, uint32_t now) {
   set_sweeping((flags & tactile::kFront) || (flags & kOwnSide), now);
 }
 
+#if !TACTILE_USB_ONLY
 void start_wifi(uint32_t now) {
-  WiFi.disconnect();
   WiFi.setHostname(kHostname);
   WiFi.begin(TACTILE_AP_SSID, TACTILE_AP_PSK);
   wifi_attempt_ms = now;
+}
+
+void restart_wifi(uint32_t now) {
+  // Arduino-ESP32 disconnect() does not stop a connection still in progress.
+  // Restart the station before calling begin() again after a long outage.
+  if (!WiFi.mode(WIFI_OFF) || !WiFi.mode(WIFI_STA)) {
+    LOG("Wi-Fi radio restart failed; retrying in 10 s");
+    wifi_attempt_ms = now;
+    return;
+  }
+  WiFi.setSleep(false);
+  start_wifi(now);
 }
 
 void maintain_wifi(uint32_t now) {
@@ -176,8 +191,8 @@ void maintain_wifi(uint32_t now) {
     udp_ready = false;
     wifi_attempt_ms = now;
   } else if (!up && now - wifi_attempt_ms >= kReconnectRetryMs) {
-    LOG("wifi still down, retrying");
-    start_wifi(now);
+    LOG("wifi still down, restarting radio");
+    restart_wifi(now);
   }
   if (up && !udp_ready && (!wifi_up || now - udp_attempt_ms >= kUdpRetryMs)) {
     udp_attempt_ms = now;
@@ -186,9 +201,60 @@ void maintain_wifi(uint32_t now) {
   }
   wifi_up = up;
 }
+#endif
 
 void check_failsafe(uint32_t now);
 
+void accept_packet(const uint8_t* buffer, size_t length, uint32_t now) {
+  // Expire before comparing seq: a restarted sender may use any counter.
+  check_failsafe(now);
+  uint8_t seq = 0;
+  uint8_t flags = 0;
+  if (!tactile::decode_packet(buffer, length, &seq, &flags)) {
+    ++stats.malformed;
+    return;
+  }
+  if (receiving && !tactile::seq_is_newer(seq, last_seq)) {
+    ++stats.stale;
+    return;
+  }
+  if (receiving) {
+    stats.lost += static_cast<uint8_t>(seq - last_seq) - 1;
+    stats.max_gap_ms = max(stats.max_gap_ms, now - last_packet_ms);
+  }
+  ++stats.accepted;
+  if (!receiving || flags != current_flags) {
+    LOG("state -> %s (seq=%u)", flags_name(flags), seq);
+  }
+  receiving = true;
+  have_packet = true;
+  last_seq = seq;
+  last_packet_ms = now;
+  apply(flags, now);
+}
+
+void receive_serial_packets() {
+  for (int i = 0; i < kMaxSerialBytesPerLoop && Serial.available() > 0; ++i) {
+    const uint8_t byte = static_cast<uint8_t>(Serial.read());
+    if (serial_length == 0 && byte != tactile::kMagic) continue;
+    serial_packet[serial_length++] = byte;
+    if (serial_length != tactile::kPacketSize) continue;
+    const bool valid = tactile::flags_valid(serial_packet[2]);
+    accept_packet(serial_packet, sizeof(serial_packet), millis());
+    // On a malformed frame, keep a trailing marker to regain alignment.
+    if (!valid && serial_packet[1] == tactile::kMagic) {
+      serial_packet[1] = serial_packet[2];
+      serial_length = 2;
+    } else if (!valid && serial_packet[2] == tactile::kMagic) {
+      serial_packet[0] = tactile::kMagic;
+      serial_length = 1;
+    } else {
+      serial_length = 0;
+    }
+  }
+}
+
+#if !TACTILE_USB_ONLY
 void receive_packets() {
   if (!wifi_up || !udp_ready) return;
   for (int i = 0; i < kMaxPacketsPerLoop; ++i) {
@@ -200,39 +266,11 @@ void receive_packets() {
     // Drain the remainder even when the packet will be rejected.
     uint8_t discard[64];
     while (udp.available() > 0) udp.read(discard, sizeof(discard));
-
-    const uint32_t now = millis();
-    // Expire BEFORE comparing seq: a restarted sender may use any counter.
-    check_failsafe(now);
-
-    uint8_t seq = 0;
-    uint8_t flags = 0;
-    if (bytes_read != static_cast<int>(sizeof(buffer)) ||
-        !tactile::decode_packet(buffer, static_cast<size_t>(length), &seq, &flags)) {
-      ++stats.malformed;
-      continue;
-    }
-    if (receiving && !tactile::seq_is_newer(seq, last_seq)) {
-      ++stats.stale;
-      continue;
-    }
-
-    if (receiving) {
-      stats.lost += static_cast<uint8_t>(seq - last_seq) - 1;
-      stats.max_gap_ms = max(stats.max_gap_ms, now - last_packet_ms);
-    }
-    ++stats.accepted;
-
-    if (!receiving || flags != current_flags) {
-      LOG("state -> %s (seq=%u)", flags_name(flags), seq);
-    }
-    receiving = true;
-    have_packet = true;
-    last_seq = seq;
-    last_packet_ms = now;
-    apply(flags, now);
+    accept_packet(buffer, bytes_read == static_cast<int>(sizeof(buffer)) ?
+                  static_cast<size_t>(length) : 0, millis());
   }
 }
+#endif
 
 void check_failsafe(uint32_t now) {
   if (have_packet) stats.max_gap_ms = max(stats.max_gap_ms, now - last_packet_ms);
@@ -285,19 +323,28 @@ void hand_setup() {
   LOG("tactile hand: %s, hostname %s.local, servo gpio %d", kHandName, kHostname,
       TACTILE_SERVO_PIN);
 
+#if TACTILE_USB_ONLY
+  LOG("USB serial direction input at 115200 baud; Wi-Fi disabled");
+#else
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
-  LOG("ESP32 Wi-Fi MAC (register this): %s", WiFi.macAddress().c_str());
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   start_wifi(millis());
+  LOG("ESP32 Wi-Fi MAC (register this): %s", WiFi.macAddress().c_str());
+#endif
   next_report_ms = millis() + kReportPeriodMs;
 }
 
 void hand_loop() {
+#if !TACTILE_USB_ONLY
   maintain_wifi(millis());
+#endif
   check_failsafe(millis());
+#if !TACTILE_USB_ONLY
   receive_packets();
+#endif
+  receive_serial_packets();
   const uint32_t now = millis();
   check_failsafe(now);
   update_servo(now);

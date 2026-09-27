@@ -10,6 +10,11 @@
 #define TACTILE_HAND_RIGHT 0
 #endif
 
+// Set to 1 for a USB serial packet test. Wi-Fi is not started in this build.
+#ifndef TACTILE_USB_ONLY
+#define TACTILE_USB_ONLY 0
+#endif
+
 // Servo signal pin. GPIO 18 is PWM-capable and not a boot strapping pin.
 #ifndef TACTILE_SERVO_PIN
 #define TACTILE_SERVO_PIN 18
