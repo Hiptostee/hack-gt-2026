@@ -80,13 +80,14 @@ class Speech:
         if the speech was cut off."""
         if not text.strip():
             return True
+        generation = self.audio.generation(priority)
         if not local and self.key and self.voice_id:
-            played = self._say_cloud(text, priority)
+            played = self._say_cloud(text, priority, generation)
             if played is not None:
                 return played
-        return self._say_local(text, priority)
+        return self._say_local(text, priority, generation)
 
-    def _say_cloud(self, text, priority):
+    def _say_cloud(self, text, priority, generation=None):
         """None means no audio was produced, so the caller falls back to local."""
         url = (API + "/text-to-speech/" + self.voice_id + "/stream?"
                + urlencode({"output_format": OUTPUT_FORMAT}))
@@ -101,12 +102,15 @@ class Speech:
         }
         request = Request(url, data=json.dumps(payload).encode(),
                           headers={"xi-api-key": self.key, "Content-Type": "application/json"})
-        playback = None
+        # Register before opening the network request: a hazard must revoke
+        # this answer even if HTTP has not returned its first byte yet.
+        playback = self.audio.stream(priority, generation=generation)
         fed = False
         try:
             with urlopen(request, timeout=20) as response:
                 self.cloud_ok = True
-                playback = self.audio.stream(priority)
+                if playback.cancelled:
+                    return False
                 for chunk in self._chunks(response):
                     if not playback.feed(chunk, PCM_RATE):
                         break  # Cancelled: stop reading, drop the rest.
@@ -144,10 +148,10 @@ class Speech:
             if np is not None:
                 yield np.frombuffer(block[:usable], dtype="<i2")
 
-    def _say_local(self, text, priority):
+    def _say_local(self, text, priority, generation=None):
         # Sentence by sentence: the first plays while the rest render, so a long
         # status report does not wait for the whole thing to synthesize.
-        playback = self.audio.stream(priority)
+        playback = self.audio.stream(priority, generation=generation)
         spoke = False
         try:
             for sentence in re.split(r"(?<=[.!?])\s+", text.strip()):

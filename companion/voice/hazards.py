@@ -1,8 +1,6 @@
 """Local hazard warnings. Rendered once at startup, played offline, first on the speaker.
 
-The current /hazard_warning message carries no payload the companion parses,
-so every warning uses the generic phrase. The JSON contract in
-ros_ws/src/hazard_warnings/specs.md §6 replaces this when the detector exists.
+ROS snapshots are validated by HazardState before reaching this phrase bank.
 """
 import sys
 
@@ -29,6 +27,41 @@ class HazardVoice:
         self.clip = np.concatenate(parts + ([phrase] if self.phrase_ready else []))
         self.last_at = None
         self.current = None
+        self.bank = {}
+        for severity in ("urgent", "caution"):
+            for band in ("head", "torso"):
+                for direction in ("left", "center", "right"):
+                    text = "Head-height obstacle ahead" if band == "head" else "Obstacle ahead"
+                    if direction != "center":
+                        text += ", " + direction
+                    if severity == "urgent":
+                        text = "Stop. " + text
+                    clip = speech.render_local(text + ".")
+                    self.phrase_ready = self.phrase_ready and clip is not None
+                    # Short urgent onset; never wait for cloud synthesis.
+                    prefix = audio.tone(1320, 0.06, 0.7) if severity == "urgent" else np.zeros(0, np.int16)
+                    self.bank[f"{severity}:{band}:{direction}"] = np.concatenate(
+                        [prefix, clip if clip is not None else self.clip])
+        for key, text in {"unavailable": "Hazard sensing unavailable. Use your cane.",
+                          "ready": "Hazard warnings ready. Floor hazards are not monitored.",
+                          "restored": "Hazard sensing restored."}.items():
+            clip = speech.render_local(text)
+            self.phrase_ready = self.phrase_ready and clip is not None
+            self.bank[key] = clip if clip is not None else self.clip
+        self.bank["alive"] = audio.tone(440, 0.04, 0.08)
+
+    def announce(self, alert, now):
+        """At most one pending alert; never replace an ongoing higher priority warning."""
+        if now >= alert.expires_at:
+            return False
+        if self.current is not None and not self.current.done.is_set():
+            if self.current.priority <= alert.priority:
+                return False
+            self.current.cancel()
+        self.audio.revoke(alert.priority)
+        self.current = self.audio.submit(self.bank[alert.phrase], priority=alert.priority,
+                                         expires_at=alert.expires_at)
+        return not self.current.cancelled
 
     def due(self, at):
         return self.last_at is None or at - self.last_at >= REPEAT_AFTER

@@ -27,6 +27,13 @@ public:
     rotate_stop_rad_ = declare_parameter<double>("rotate_stop_rad", 0.85);
     path_timeout_s_ = declare_parameter<double>("path_timeout_s", 1.5);
     validity_timeout_s_ = declare_parameter<double>("validity_timeout_s", 1.5);
+    hazard_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/hazard/guidance_permitted", rclcpp::QoS(1).reliable().durability_volatile(),
+      [this](std_msgs::msg::Bool::ConstSharedPtr message) {
+        hazard_permitted_ = message->data;
+        last_hazard_ = std::chrono::steady_clock::now();
+        if (!hazard_permitted_) {have_direction_ = false;}
+      });
 
     command_pub_ = create_publisher<std_msgs::msg::UInt8>("/backpack/direction", 10);
     active_sub_ = create_subscription<std_msgs::msg::Bool>(
@@ -77,7 +84,8 @@ private:
   void publish_direction()
   {
     const auto now = std::chrono::steady_clock::now();
-    if (!active_ || !valid_ || !path_ ||
+    if (!hazard_permitted_ || std::chrono::duration<double>(now - last_hazard_).count() >= 0.5 ||
+      !active_ || !valid_ || !path_ ||
       std::chrono::duration<double>(now - last_active_).count() > validity_timeout_s_ ||
       std::chrono::duration<double>(now - last_validity_).count() > validity_timeout_s_ ||
       std::chrono::duration<double>(now - last_path_).count() > path_timeout_s_)
@@ -159,6 +167,9 @@ private:
   bool have_direction_{false};
   bool valid_{false};
   bool active_{false};
+  bool hazard_permitted_{false};
+  std::chrono::steady_clock::time_point last_hazard_{};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr hazard_sub_;
   std::chrono::steady_clock::time_point last_active_{};
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr active_sub_;
   nav_msgs::msg::Path::ConstSharedPtr path_;

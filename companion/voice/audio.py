@@ -8,6 +8,7 @@ import io
 import itertools
 import sys
 import threading
+import time
 import wave
 from collections import deque
 
@@ -64,6 +65,7 @@ class Playback:
         self.started = False
         self.cancelled = False
         self.done = threading.Event()
+        self.expires_at = None
 
     def feed(self, samples, rate=OUTPUT_RATE):
         """Returns False once cancelled, so the producer can stop reading."""
@@ -94,6 +96,7 @@ class Audio:
         self._playbacks = []
         self._cues = deque()
         self._sequence = itertools.count()
+        self._epochs = [0] * 6
         self._output = None
         self._output_failed = False
         self._start_output = start_output
@@ -141,7 +144,11 @@ class Audio:
 
     # ---- speech lane -----------------------------------------------------
 
-    def stream(self, priority=ANSWER):
+    def generation(self, priority=ANSWER):
+        with self._out_lock:
+            return self._epochs[priority]
+
+    def stream(self, priority=ANSWER, generation=None):
         """Open a playback to feed incrementally. Always close() it."""
         playback = Playback(self, priority, next(self._sequence))
         if not self._ensure_output():
@@ -149,12 +156,17 @@ class Audio:
             playback.done.set()
             return playback
         with self._out_lock:
-            self._playbacks.append(playback)
+            if generation is not None and generation != self._epochs[priority]:
+                playback.cancelled = True
+                playback.done.set()
+            else:
+                self._playbacks.append(playback)
         return playback
 
-    def submit(self, samples, rate=None, priority=ANSWER):
+    def submit(self, samples, rate=None, priority=ANSWER, expires_at=None):
         """Queue a whole clip without waiting for it."""
         playback = self.stream(priority)
+        playback.expires_at = expires_at
         playback.feed(samples, rate or self.output_rate)
         playback.close()
         return playback
@@ -167,6 +179,8 @@ class Audio:
     def revoke(self, from_priority):
         """Cancel every playback at from_priority or less important."""
         with self._out_lock:
+            for priority in range(from_priority, len(self._epochs)):
+                self._epochs[priority] += 1
             for playback in list(self._playbacks):
                 if playback.priority >= from_priority:
                     self._cancel_locked(playback)
@@ -180,6 +194,12 @@ class Audio:
         or playing. A microphone sending to the cloud should hear silence then."""
         with self._out_lock:
             return bool(self._cues) or any(p.priority < ANSWER for p in self._playbacks)
+
+    def output_ready(self):
+        """A stopped/disconnected stream cannot authorize movement guidance."""
+        if not self._start_output:
+            return True
+        return bool(self._ensure_output() and self._output is not None and self._output.active)
 
     def _feed(self, playback, samples, rate):
         if len(samples) and rate != self.output_rate:
@@ -279,11 +299,15 @@ class Audio:
         mixed = np.zeros(frames, dtype=np.float32)
         with self._out_lock:
             filled = 0
+            hazard_audio = False
             while filled < frames:
                 playback = self._current_locked()
                 if playback is None:
                     break
                 if not playback.started:
+                    if playback.expires_at is not None and time.monotonic() >= playback.expires_at:
+                        self._cancel_locked(playback)
+                        continue
                     # Whatever it displaces is gone for good: no resuming a
                     # half-spoken answer after a warning.
                     for other in list(self._playbacks):
@@ -295,6 +319,7 @@ class Audio:
                         self._finish_locked(playback)
                         continue
                     break  # The most important speech is still arriving; hold the lane.
+                hazard_audio = hazard_audio or playback.priority <= CAUTION
                 chunk = playback.chunks[0]
                 take = min(frames - filled, len(chunk) - playback.offset)
                 mixed[filled:filled + take] = chunk[playback.offset:playback.offset + take]
@@ -304,6 +329,12 @@ class Audio:
                     playback.chunks.popleft()
                     playback.offset = 0
             position = 0
+            if hazard_audio:
+                # A button/working cue must not mask an obstacle or health
+                # warning, nor play later as a misleading delayed response.
+                for cue in self._cues:
+                    cue[2].set()
+                self._cues.clear()
             while position < frames and self._cues:
                 cue = self._cues[0]
                 samples, offset, done = cue

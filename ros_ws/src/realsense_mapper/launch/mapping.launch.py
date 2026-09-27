@@ -13,6 +13,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     realsense_share = get_package_share_directory("realsense2_camera")
     mapper_share = get_package_share_directory("realsense_mapper")
+    hazard_share = get_package_share_directory("hazard_warnings")
     camera_source = LaunchConfiguration("camera_source")
     camera_profile = LaunchConfiguration("camera_profile")
     enable_backpack_stack = LaunchConfiguration("enable_backpack_stack")
@@ -109,6 +110,14 @@ def generate_launch_description():
     })
 
     return LaunchDescription([
+        DeclareLaunchArgument("enable_hazard_warnings", default_value="true"),
+        DeclareLaunchArgument("hazard_config", default_value=os.path.join(hazard_share, "config", "hazards.yaml")),
+        Node(
+            package="hazard_warnings", executable="hazard_warnings_node",
+            name="hazard_warnings", output="screen",
+            condition=IfCondition(LaunchConfiguration("enable_hazard_warnings")),
+            parameters=[LaunchConfiguration("hazard_config")],
+        ),
         DeclareLaunchArgument(
             "camera_source",
             default_value="realsense",

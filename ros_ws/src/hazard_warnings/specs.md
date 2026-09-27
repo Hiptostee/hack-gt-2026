@@ -1,10 +1,13 @@
 # Voice warnings for hazards — implementation plan
 
-Status: written 2026-09-26. Milestone 2 (audio owner and local "Obstacle
-ahead." phrase in every voice state) is implemented on `feature/guardian` and
-unit-tested; `scripts/fake_hazard.py` publishes test warnings. No detector
-publishes `/hazard_warning` yet (milestones 1 and 3+), and nothing is
-hardware-validated.
+Status: Stage A software implemented in the `feature/guardian` working tree
+on 2026-09-26: full-resolution depth geometry, versioned snapshots, strict
+consumer, resident phrase bank, sensor-health handling and movement inhibition.
+Geometry/policy tests and the synthetic ROS pipeline pass; the node and changed
+direction node compile in ROS Jazzy (arm64). Nothing is hardware-validated.
+Calibration defaults to unavailable until COVERAGE-01 is completed. See
+[README.md](README.md) for setup and [coverage.md](coverage.md) for the empty
+measurement record. Stages B/C remain unimplemented.
 Feature scope follows [the canonical plan](../../../plan.md), especially §5,
 and [AGENTS.md](../../../AGENTS.md). The workspace brainstorming document is
 idea input; its L515 inventory is obsolete. This spec covers all requested
@@ -56,7 +59,7 @@ SLAM infrastructure. Never say “all clear” or “safe to proceed.”
 
 ## 2. What exists and what must change
 
-Inspected code in the voice checkout:
+Original gaps (historical; addressed by the Stage A implementation below):
 
 - `realsense_mapper` already publishes/consumes RGB, aligned depth, camera
   calibration and IMU topics. Reuse this camera owner; do not open USB again.
@@ -72,6 +75,47 @@ Inspected code in the voice checkout:
 
 Therefore “publish a string and call TTS” is insufficient. Payload delivery,
 all-state interruption and exclusive audio ownership are required work.
+
+### Implemented Stage A decisions (2026-09-26)
+
+- One new ROS package, no additional inference worker or camera owner. Geometry
+  and policy headers have no ROS dependency and are exercised by synthetic tests.
+- Explicit measured optical-to-body and IMU-to-body transforms in YAML replace
+  a TF dependency for this fixed-mount first version. **Why:** the existing
+  SLAM IMU transform is suspect and hazard sensing must survive SLAM failure.
+  Fresh acceleration/rotation must remain within the configured calibration
+  posture envelope; excessive tilt/motion reports body pose unavailable.
+  This is guarded fixed-mount geometry, not dynamic floor-height compensation.
+- CameraInfo must match optical frame/dimensions and be at most 1 s old. Only
+  zero distortion / five-coefficient `plumb_bob` is supported. Endian-aware
+  `16UC1` uses an explicit metric scale; `32FC1` uses metres. No hole filling.
+- Full-resolution neighboring points within 0.08 m form components. At least
+  3 pixels per body zone and two fresh frames confirm ordinary hazards; 12
+  supported pixels can confirm urgent proximity immediately. Six body zones
+  associate candidates within 0.35 m and 250 ms. These are provisional settings.
+- Depth health requires at least four projected ROI samples per zone and 50%
+  valid depth in each of six head/torso × left/center/right zones. Missing
+  coverage inhibits guidance but does not suppress surviving observed clusters.
+  This check cannot certify coverage or detect all transparent/thin obstacles.
+- Strict Stage A enums: kind `upper_body_obstacle`; severity `caution|urgent`;
+  direction `left|center|right`; height `torso|head`; evidence `depth_cluster`;
+  label `null`; health `ok|degraded|unavailable`. Floor/labels remain unavailable.
+- `/hazard/guidance_permitted` is a reliable volatile `Bool`, emitted by the
+  companion event loop every ≤50 ms while responsive, not by the producer.
+  It requires fresh healthy depth/body pose, working output/phrase assets and
+  no urgent event. The direction node requires a true lease younger than 500 ms.
+  Thus a dead companion cannot keep movement enabled. No new tactile flag bits.
+- Events expire 250 ms after capture and again before the first playback block.
+  Cooldowns begin only after audio starts; expired queued clips can be retried
+  from fresh evidence. Audio generations invalidate even pending HTTP-open and
+  local-fallback work. Buttons cannot mute hazard/fault playback.
+- Three healthy snapshots allow recovery. Fault announcements repeat no faster
+  than 15 s; a quiet health tone is offered after 15 s without hazard/status audio.
+  Output-stream loss inhibits guidance and stops the supervised companion run.
+  Independent tactile fault signaling remains unimplemented.
+- `scripts/fake_hazard.py` supplies explicitly simulated contract fixtures;
+  it must not run alongside the real producer. HTTP/browser-only fallback lacks
+  the audio-health lease and therefore cannot drive the changed direction node.
 
 ## 3. Runtime architecture
 
@@ -125,7 +169,7 @@ thickness. One chest-mounted D415 may not cover both approaching floor edges
 and head hazards. If it cannot, keep unsupported families disabled and announce
 the limitation; evaluate another mounting angle or additional camera separately.
 
-**Tracked task — COVERAGE-01 (not started; owner unassigned):** perform the
+**Tracked task — COVERAGE-01 (measurement record created, not measured; owner unassigned):** perform the
 survey above in the proposed worn position, including leaning and turning.
 Deliver `coverage.md` beside this spec with mount measurements, visibility at
 each distance/height, thin-obstacle results, blind zones and a supported-hazard

@@ -17,6 +17,13 @@ unit-tested on `feature/guardian`; Pi button timing not yet validated. The
 locator sound is removed. The button mapping is in [companion/specs.md §2](companion/specs.md#2-interaction-model).
 The worn-camera coverage survey is a required task before capability claims.
 
+Stage A [local hazard warnings](ros_ws/src/hazard_warnings/README.md) are now
+implemented: depth geometry, offline interruption and sensor-health gating.
+**The default uncalibrated configuration inhibits movement guidance.** Complete
+the mount/coverage record and run the on-device companion (`PI_VOICE=1`) before
+a supervised navigation test. The laptop voice page alone supplies no audio-health
+permission. Hardware detection coverage and Pi latency remain unverified.
+
 The stack includes:
 
 - Intel RealSense D415 driver
@@ -25,6 +32,7 @@ The stack includes:
 - 2D occupancy grid on `/rtabmap/map`
 - YOLOX black-backpack detection on `/yolo/annotated_image`
 - heading-aware A* route to a detected backpack on `/backpack/path`
+- local upper-body depth warnings on `/hazard_warning`, independent of SLAM/cloud
 - laptop voice companion that uses the Pi camera and can activate backpack guidance
 - 60 Hz EKF stabilization between visual odometry updates
 - RViz inside an XFCE desktop served by TigerVNC and noVNC

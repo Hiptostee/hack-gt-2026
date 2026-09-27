@@ -19,6 +19,9 @@ class RosGuidance:
         self.path_valid = False
         self.valid_at = 0.0
         self.active = False
+        self.hazard_permitted = False
+        self.hazard_at = 0.0
+        self.node.create_subscription(Bool, "/hazard/guidance_permitted", self._hazard_gate, 1)
         self.node.create_subscription(Bool, "/backpack/path_valid", self._valid, 10)
         self.timer = self.node.create_timer(0.2, self._publish)
         self.executor = SingleThreadedExecutor()
@@ -37,6 +40,11 @@ class RosGuidance:
             self.path_valid = message.data
             self.valid_at = time.monotonic()
 
+    def _hazard_gate(self, message):
+        with self.lock:
+            self.hazard_permitted = message.data
+            self.hazard_at = time.monotonic()
+
     def _publish(self):
         with self.lock:
             active = self.active
@@ -44,6 +52,8 @@ class RosGuidance:
 
     def start(self):
         with self.lock:
+            if not self.hazard_permitted or time.monotonic() - self.hazard_at >= 0.5:
+                return "Guidance is unavailable while hazard sensing or audio is unavailable, or an urgent obstacle is present."
             if not self.path_valid or time.monotonic() - self.valid_at > PATH_VALID_TIMEOUT_S:
                 return "I cannot find a current route to the backpack. Please try again."
             self.active = True

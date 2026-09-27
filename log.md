@@ -6,6 +6,74 @@ are the things that get lost.
 
 ---
 
+## 2026-09-26 — Stage A hazard detector and fail-closed voice integration
+
+User requested implementation of the missing hazard pipeline. Changes are in
+the `feature/guardian` working tree; no commits, merges or pushes were run.
+
+**Built:**
+- `ros_ws/src/hazard_warnings`: a C++17 package consuming the existing aligned
+  depth, CameraInfo and IMU. Full-resolution geometry, connected support,
+  two-frame confirmation, strongly supported urgent bypass, zone association,
+  five-frame clearance hysteresis and expiring observation stamps. Handles
+  `16UC1`/`32FC1`, padded rows and endian conversion; no cloud/SLAM dependency.
+- Versioned `/hazard_warning` snapshots on a separate heartbeat callback,
+  including fault updates when camera processing stops. Stage A only: floor
+  and semantic labels are explicitly unavailable.
+- `voice/hazard_state.py`: strict schema/enums, sequence/session protection,
+  monotonic expiry, clock-jump invalidation, heartbeat loss, bounded repeat
+  history and stable health recovery. `RosCamera` forwards the actual JSON;
+  subscription errors are no longer silently discarded.
+- Resident direction/height/urgency and health phrase bank; all-state
+  interruption, Guardian cancellation/muting, cooldowns only after playback
+  starts, and expiry rechecked by the audio owner. Generation tokens also
+  reject cloud requests returning after preemption and their local fallback.
+  Button/working earcons cannot mask hazard/fault speech.
+- `/hazard/guidance_permitted`: a 500 ms companion event-loop lease requiring
+  fresh healthy sensing, phrase assets/output, and no urgent obstacle.
+  `RosGuidance.start()` refuses without it; `backpack_direction_node` stops
+  output when false/missing/expired. Audio stream loss stops the supervised
+  companion. Direction consumers must still expire commands; hands not merged.
+- Launch wiring, measured-config entry point, `coverage.md` measurement
+  template and reproducible synthetic ROS smoke test. Fake publisher now
+  exercises the strict contract using the ROS clock; still simulated only.
+
+**Decisions and reasons:**
+- Use explicit measured optical-to-body and IMU-to-body transforms in YAML,
+  not the suspect SLAM IMU TF. Fixed-mount body heights are accepted only while
+  fresh acceleration/rotation stay inside a provisional upright posture
+  envelope. Excessive lean/motion reports unavailable rather than pretending
+  to compensate for body pitch.
+- `calibrated=false` and `coverage_verified=false` by default, with zero/unset
+  body dimensions. There are no real mount measurements here to justify
+  enabling them. Default startup speaks unavailable and inhibits guidance.
+- Navigation now requires the on-device ROS companion. The HTTP/browser
+  fallback has no hazard/audio lease and alone cannot authorize movement.
+- No semantic training, door/passage geometry, floor hazards or tactile hazard
+  patterns were added; these remain separate stages.
+
+**Verified:**
+- All 140 companion Python tests pass, including localhost bridge tests and
+  14 hazard/audio tests. Seven browser-help tests passed.
+- Pure C++ geometry/policy test passed natively and via CTest in ROS Jazzy arm64.
+- Hazard package and changed direction node compile without warnings in
+  `ros:jazzy-ros-base`. Full mapper-package build in that minimal image lacks
+  OpenCV development files, so the changed direction source was compiled with
+  its actual ROS dependencies as a separate target.
+- Synthetic ROS pipeline passed 12 checks: uncalibrated startup, observed
+  background, direction permission, caution/urgent geometry, urgent inhibition,
+  invalid-depth degradation, tilt rejection, old capture rejection, camera
+  loss heartbeat, producer death and companion/audio lease expiry.
+- Python syntax checks and `git diff --check` on this change's paths passed.
+
+**Still required on the Pi:** COVERAGE-01, actual units/intrinsics/frame/mount
+verification, local phrase audibility, IMU posture thresholds, missed/thin/
+transparent obstacle trials, capture-to-perceptible-warning timing and full-load
+performance. No claim of worn coverage or hardware latency follows from these
+synthetic checks. See `ros_ws/src/hazard_warnings/README.md` for bring-up.
+
+---
+
 ## 2026-09-26 18:45 — Handoff: merge and hardware-test on the Pi laptop
 
 **Docs are committed again** (user decision; reverses the 17:45 local-only

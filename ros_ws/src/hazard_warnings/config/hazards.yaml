@@ -1,0 +1,31 @@
+hazard_warnings:
+  ros__parameters:
+    # Fail closed until COVERAGE-01 and mount/unit measurements are completed.
+    calibrated: false
+    coverage_verified: false
+    camera_optical_frame: camera_color_optical_frame
+    imu_frame: imu_link
+    # Optical axes -> wearer_base (x forward, y left, z up). Example orientation
+    # only; xyz and body dimensions MUST be measured. No use of suspect SLAM TF.
+    camera_to_body_xyz: [0.0, 0.0, 0.0]
+    camera_to_body_rpy: [-1.5707963267948966, 0.0, -1.5707963267948966]
+    imu_to_body_xyz: [0.0, 0.0, 0.0]
+    imu_to_body_rpy: [0.0, 0.0, 0.0]
+    body_half_width_m: 0.0
+    lateral_margin_m: 0.15
+    torso_min_m: 0.0
+    head_min_m: 0.0
+    head_max_m: 0.0
+    depth_16u_scale_m: 0.001
+    min_depth_m: 0.2
+    max_depth_m: 4.0
+    caution_m: 1.5
+    urgent_m: 0.8
+    min_cluster_pixels: 3
+    urgent_cluster_pixels: 12
+    cluster_gap_m: 0.08
+    min_valid_fraction: 0.5
+    # Fixed mount only: disable body-height inference during excessive tilt,
+    # rotation or acceleration, rather than pretending the camera is level.
+    max_tilt_rad: 0.2
+    max_rotation_rad_s: 0.7

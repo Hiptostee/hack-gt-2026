@@ -1,6 +1,6 @@
 # Wearable Spatial Guide — Implementation Plan
 
-**Version:** 1.3 · **Reviewed:** 2026-09-26 17:45 · **Event:** HackGT 2026
+**Version:** 1.4 · **Updated:** 2026-09-26 · **Event:** HackGT 2026
 
 A wearable spatial guide for blind and low-vision people, built as a complement
 to a white cane. The prototype adds forward chest/head-height obstacle alerts,
@@ -18,6 +18,13 @@ branches inspected on 2026-09-26 18:30: `main` and `origin/integeration`
 pushed); and `origin/tactileESP32` at `84e942c` (firmware plus a
 laptop-side tactile sender). None is merged into `main`. Branch contents do
 not establish that the combined wearable has been tested.
+
+**Latest working-tree update:** Stage A hazard software is implemented on
+`feature/guardian`, not merged/committed by the agent. It adds depth geometry,
+strict hazard/health snapshots, offline phrases and an expiring companion-to-
+direction permission. Synthetic ROS checks pass; mounting, coverage and Pi
+latency remain unverified. Default configuration intentionally inhibits guidance.
+See [hazard setup](ros_ws/src/hazard_warnings/README.md) and the newest log entry.
 
 ### 1a. Integration branch status (`integeration` = `main` @ `fca5a5e`)
 
@@ -78,8 +85,9 @@ Remaining gaps:
   `PI_VOICE=1 ./scripts/pi_launch.sh`. `--pi-url` lets the same service run on
   the laptop against the Pi camera as a fallback. Pi bring-up TO BE VALIDATED
   with `python3 -m companion.guardian.preflight --pin 17`.
-- **No hazard detector yet.** Nothing on any branch publishes
-  `/hazard_warning`; see §5.
+- **Hazard detector now exists in the `feature/guardian` working tree.**
+  `/hazard_warning` has a Stage A publisher and strict consumer. Not integrated
+  into `main`; hardware calibration/coverage and latency remain open (§5).
 
 ## 1. Scope and status
 
@@ -207,7 +215,7 @@ tactile-only demo or a different button mapping.
 | Direction and pose stabilization | Direction, valid-visual-odometry and stable-odometry nodes | INTEGRATED on `integeration`; direction gated by `/backpack/guidance_active` |
 | Voice → navigation | `integeration`: `navigate_backpack` / `stop_navigation` actions, `RosGuidance`, Pi bridge | IMPLEMENTED ON INTEGRATION BRANCH; end-to-end walk TO BE VALIDATED |
 | Voice companion | `main` (`fca5a5e`): Gemini streaming, ElevenLabs/local speech, button state machine; newer tap mapping on `feature/guardian` | IMPLEMENTED; current demo uses laptop browser audio; Pi button/mic/speaker demonstration TO BE VALIDATED |
-| Hazard interruption | `feature/guardian`: one persistent audio owner (`voice/audio.py`), prioritized speech, resident "Obstacle ahead." phrase (`voice/hazards.py`), `_hazard()` for every state | IMPLEMENTED (hazard milestone 2): unit-tested and checked on a Mac speaker; payload still ignored (milestone 1); no detector publishes the topic; Pi onset timing TO BE VALIDATED |
+| Hazard detection/interruption | `feature/guardian` working tree: C++ Stage A geometry, JSON snapshot validation, resident phrase bank, all-state interruption and expiring movement permission | IMPLEMENTED IN SOFTWARE: unit/synthetic ROS checks pass; defaults unavailable until mount/coverage configuration; Pi onset timing TO BE VALIDATED |
 | Tactile transport/firmware | `origin/tactileESP32` (`84e942c`): C++ sender, protocol, hotspot scripts, SG90 firmware, PlatformIO build/flash, laptop-side `tactile_link.py` fed by the Pi bridge | IMPLEMENTED ON BRANCH; not merged into `main`; log records host builds/tests, not flashed hardware |
 | Guardian Voice | `companion/guardian/`: agent configured and smoke-tested on a laptop; `GuardianController`, push-to-talk `GuardianAudio`, `SmsGate` with a fake sender | IMPLEMENTED ON BRANCH: `feature/guardian` (`e31e770`), wired into the on-device companion; tested live on a Mac; Pi preflight, observation trail and `TwilioSender` added after (mock-tested, no Twilio account); not run on the Pi |
 | Local help | `status_text()` status and last landmark on its own worker; locator removed from voice code | IMPLEMENTED on `feature/guardian`; offline Pi run TO BE VALIDATED |
@@ -247,9 +255,11 @@ Connections 3 and 5 are not yet present there.
 cues and scene narration. Suppress invalid movement guidance and communicate why;
 neutral servos alone cannot distinguish arrival, inactivity and failure.
 
-**TO BE IMPLEMENTED:** output arbitration, bounded work queues, freshness checks
-and all-state hazard handling. Alerts must work while idle, recording, thinking,
-speaking or handling help. Local help must not wait behind a cloud request.
+**IMPLEMENTED ON `feature/guardian` (hardware TO BE VALIDATED):** audio
+arbitration, bounded latest hazard state, event expiry and all-state hazard
+handling, including Guardian. Local help has its own worker. The companion
+publishes a 500 ms guidance permission lease; urgent hazards, required sensing
+faults and output/service loss inhibit the direction node.
 Invalidating a response generation currently suppresses its eventual answer; it
 does not terminate the outstanding network request.
 
@@ -278,12 +288,12 @@ tested mounting angles and supported hazard families. Owner: unassigned.
 If one mount cannot cover both floor and head hazards, document the limitation
 and compare remounting/additional sensing before enabling unsupported features.
 
-- **TO BE IMPLEMENTED:** geometry detector independent of successful SLAM or
-  cloud responses. Aligned depth may suffice; a full point cloud is not an
-  automatic requirement.
-- **TO BE IMPLEMENTED:** timestamped events with direction, severity, expiry and
-  sensor health; local alert output in every voice state.
-- **DECIDED FOR INITIAL IMPLEMENTATION:** the feature spec defines a versioned
+- **IMPLEMENTED IN WORKING TREE:** local aligned-depth geometry independent of
+  SLAM/cloud, with explicit measured mount configuration and IMU posture guards.
+  Calibration/coverage flags remain false until measured; no invented wearer dimensions.
+- **IMPLEMENTED IN WORKING TREE:** timestamped events with direction, severity,
+  expiry and sensor health; strict consumer, local phrases and guidance inhibition.
+- **IMPLEMENTED / HARDWARE TO BE VALIDATED:** the feature spec defines a versioned
   JSON snapshot on `/hazard_warning`, bounded local audio arbitration,
   persistence/hysteresis and repetition rules. Thresholds and cue comprehension
   remain **TO BE VALIDATED** on hardware.
@@ -466,9 +476,11 @@ scheduling are **TO BE DECIDED** before work starts.
    re-apply the newer voice commits, merge `tactileESP32` and write the
    direction-to-tactile bridge, verify the IMU transform, assemble hardware and
    establish concurrent camera/audio/hotspot/internet operation on the Pi.
-2. **Complete audio warnings and failure handling.** First finish the camera
-   coverage survey, then geometry detection, all-state audio preemption, command
-   expiry and audible health signals. Tactile hazard patterns stay exploratory.
+2. **Complete audio warnings and failure handling.** Stage A geometry,
+   all-state audio preemption, expiry and audible health signals are implemented
+   in the `feature/guardian` working tree, with synthetic checks. Remaining:
+   complete the camera coverage survey, measured mount configuration and Pi
+   full-load acceptance tests. Tactile hazard patterns stay exploratory.
    Verify camera/pose/planner loss without stale guidance; include either-hand
    loss when tactile navigation is integrated. Audio-only development demos are
    supervised and stop on output failure; independent tactile fault signaling

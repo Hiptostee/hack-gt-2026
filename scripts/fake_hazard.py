@@ -5,8 +5,8 @@
     python3 scripts/fake_hazard.py --every 5        # one every 5 s until Ctrl+C
     python3 scripts/fake_hazard.py --burst 3        # 10 Hz for 3 s (tests the 2 s repeat limit)
 
-Payloads follow the hazard spec §6 JSON shape so a future parser can read them.
-The companion currently reacts to any message and ignores the payload.
+Payloads exercise the Stage A parser. Run without the real producer (one topic
+owner). This is simulated depth evidence, never a hardware demonstration.
 """
 import argparse
 import json
@@ -18,18 +18,18 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 
-def payload(sequence, session):
-    now = time.time_ns()
+def payload(sequence, session, now=None):
+    now = time.time_ns() if now is None else now
     return json.dumps({
         "schema_version": 1,
         "source_session": session,
         "sequence": sequence,
         "published_stamp_ns": now,
-        "health": {"depth": "ok", "body_pose": "ok", "floor": "unavailable", "labels": "ok"},
+        "health": {"depth": "ok", "body_pose": "ok", "floor": "unavailable", "labels": "unavailable"},
         "events": [{
             "id": "fake-1", "observed_stamp_ns": now, "ttl_ms": 250,
             "kind": "upper_body_obstacle", "severity": "urgent", "direction": "center",
-            "height_band": "head", "distance_m": None, "label": None, "evidence": "fake_test",
+            "height_band": "head", "distance_m": None, "label": None, "evidence": "depth_cluster",
         }],
     })
 
@@ -53,7 +53,7 @@ def main():
     def send():
         nonlocal sequence
         sequence += 1
-        publisher.publish(String(data=payload(sequence, session)))
+        publisher.publish(String(data=payload(sequence, session, node.get_clock().now().nanoseconds)))
         print(f"published #{sequence} on {args.topic}", flush=True)
 
     try:

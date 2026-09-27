@@ -20,6 +20,7 @@ from companion.voice.button import open_button
 from companion.voice.camera import open_camera
 from companion.voice.gemini import Gemini, DEFAULT_MODEL
 from companion.voice.hazards import HazardVoice
+from companion.voice.hazard_state import HazardState
 from companion.voice.session import Session
 from companion.voice.speech import Speech
 
@@ -78,7 +79,7 @@ def status_text(camera, gemini, session, landmark=True):
 
 class Companion:
     def __init__(self, audio, speech, gemini, camera, session, button, events,
-                 guidance=None, hazards=None, guardian=None):
+                 guidance=None, hazards=None, guardian=None, hazard_state=None):
         self.audio = audio
         self.guardian = guardian
         self.speech = speech
@@ -89,6 +90,8 @@ class Companion:
         self.events = events
         self.guidance = guidance
         self.hazards = hazards
+        self.hazard_state = hazard_state
+        self.pending_hazard = None
         self.lanes = {name: queue.Queue() for name in set(LANES.values())}
         self.state = "idle"
         self.generation = 0
@@ -106,8 +109,9 @@ class Companion:
             threading.Thread(target=self._worker, args=(lane,), daemon=True).start()
         self.speech.say("Ready.", priority=INFO)
         while self.running:
+            self._poll_hazards()
             try:
-                kind, at = self.events.get(timeout=0.5)
+                kind, at = self.events.get(timeout=0.05)
             except queue.Empty:
                 continue
             if kind == "quit":
@@ -119,6 +123,50 @@ class Companion:
             if handler:
                 handler(at)
         self.shutdown()
+
+    def _poll_hazards(self):
+        if self.hazard_state is None:
+            return
+        now = time.monotonic()
+        if self.pending_hazard is not None:
+            pending, playback = self.pending_hazard
+            if playback.started:
+                self.hazard_state.spoken_alert(pending, now)
+                self.pending_hazard = None
+            elif playback.cancelled:
+                # An expired queued clip was never heard: do not impose a
+                # cooldown before trying the next fresh observation.
+                self.pending_hazard = None
+        output_ready = self.audio.output_ready()
+        permitted, alert = self.hazard_state.poll(self.camera.hazard_clock(), now,
+            output_ready=output_ready and self.hazards.phrase_ready)
+        # Published by the event loop, not an independent timer: a hung/crashed
+        # companion or dead output device cannot keep the movement gate alive.
+        self.camera.permit_guidance(permitted)
+        if not output_ready:
+            print("FATAL: audio output lost; guidance inhibited. Stopping supervised demo.", file=sys.stderr)
+            self.running = False
+            return
+        if alert is None:
+            return
+        if alert.phrase == "alive" and (self.state != "idle" or self.audio.local_sound_playing()):
+            return
+        if not self.hazards.announce(alert, now):
+            return
+        if self.hazards.current is not None:
+            self.pending_hazard = (alert, self.hazards.current)
+        if alert.priority > 2:
+            return
+        self.generation += 1
+        self._cancel_taps()
+        if self.state == "recording":
+            self._disarm_cap()
+            self.audio.record_stop()
+        self.audio.stop()
+        if self.state == "guardian":
+            self.guardian.on_hazard(self.hazards.current)
+        else:
+            self.state = "idle"
 
     def _hazard(self, at):
         """Interrupts every state (hazard spec §7). The warning is queued, not
@@ -424,6 +472,8 @@ class Companion:
 
     def shutdown(self):
         self.running = False
+        if self.hazard_state is not None:
+            self.camera.permit_guidance(False)
         self._disarm_cap()
         self._cancel_taps()
         if self.guardian is not None:
@@ -456,6 +506,8 @@ def main():
                              "tunnel, e.g. http://127.0.0.1:8081")
     parser.add_argument("--gain", type=float, default=1.0, help="Output volume multiplier")
     args = parser.parse_args()
+    if args.ros and args.pi_url:
+        parser.error("Use --ros or --pi-url, not both; the HTTP fallback does not carry hazards.")
 
     audio = Audio(gain=args.gain)
     try:
@@ -477,6 +529,7 @@ def main():
     gemini = Gemini(os.environ.get("GEMINI_API_KEY", ""),
                     os.environ.get("GEMINI_MODEL", DEFAULT_MODEL))
     guidance = None
+    hazard_state = HazardState() if args.ros else None
     if args.pi_url:
         from companion.voice.pi_bridge import RemotePi
         try:
@@ -488,7 +541,7 @@ def main():
         try:
             camera = open_camera(args.topic if args.ros else None, args.image,
                                  hazard_topic=args.hazard_topic if args.ros else None,
-                                 on_hazard=lambda: events.put(("hazard", time.monotonic())))
+                                 on_hazard=hazard_state.receive if hazard_state else None)
         except AppError as error:
             print(f"FATAL: {error}", file=sys.stderr)
             return 1
@@ -511,7 +564,7 @@ def main():
           f"Camera: {camera.status()}.", flush=True)
 
     companion = Companion(audio, speech, gemini, camera, session, button, events,
-                          guidance, hazards, guardian)
+                          guidance, hazards, guardian, hazard_state)
     try:
         companion.run()
     except KeyboardInterrupt:

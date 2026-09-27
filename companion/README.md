@@ -39,7 +39,15 @@ simulates a hazard warning, `q` quits. Without `--ros`, `--image` supplies a
 static JPEG so the pipeline can be exercised off the robot. `--pi-url
 http://127.0.0.1:8081` instead takes frames and guidance from the Pi bridge
 through the SSH tunnel, so the laptop can run this service against the real
-camera (hazard messages are not forwarded; use `x`).
+camera (hazard messages are not forwarded; use `x` for simulated audio only).
+The HTTP/browser fallback alone cannot authorize movement: the direction node
+now requires the on-device companion's fresh hazard/audio-health lease.
+
+Stage A detection and setup are documented in
+[hazard_warnings/README.md](../ros_ws/src/hazard_warnings/README.md). Rebuild both
+`hazard_warnings` and `realsense_mapper` before launching. Until measured mount
+dimensions and coverage are configured, sensing reports unavailable and guidance
+is inhibited. Floor hazards and semantic object labels are not implemented.
 
 ### Guardian Voice
 
@@ -68,7 +76,7 @@ export GUARDIAN_SMS=fake                 # prints texts; or `twilio` with the fo
 
 python3 -m companion.guardian.preflight --pin 17   # on the Pi, before a demo
 PI_VOICE=1 ./scripts/pi_launch.sh                  # ROS stack + this service on GPIO 17
-python3 scripts/fake_hazard.py --every 5           # bench test: warnings during Guardian
+python3 scripts/fake_hazard.py --every 5           # simulated bench test; stop real hazard producer first
 ```
 
 The preflight checks keys, packages, the speaker at 22050 Hz and mic at
@@ -79,16 +87,19 @@ and heartbeats). `pi_launch.sh` loads `.env` for the voice service only.
 Taps resolve half a second after the last one, so help starts after that pause.
 Help uses the local speech engine so it still works with no network.
 
-All sound goes through one output owner in `voice/audio.py`: hazard warnings,
-then help, then ordinary answers, with earcons mixed on top. A hazard warning
-("Obstacle ahead.", rendered locally at startup) cuts off anything less
-urgent in any state, and the cut-off speech never resumes. Button presses do
-not silence a warning.
+All sound goes through one output owner in `voice/audio.py`: urgent hazards,
+sensing faults, caution hazards, help, then ordinary answers. Local phrases
+are rendered at startup. Valid fresh warnings cut lower-priority speech in
+every state, including pending cloud output; cut-off speech never resumes.
+Expired queued warnings never begin playback. Button presses do not silence
+warnings. Missing phrase assets inhibit guidance; output-stream loss stops the
+supervised companion run. There is no independent tactile fault channel yet.
 
 With `--ros`, the camera is shared with the independent YOLO and mapping nodes.
 Ask for a scene description while YOLO keeps tracking the black backpack. Saying
 "bring me to the backpack" asks Gemini to return `navigate_backpack`; the voice
-service checks `/backpack/path_valid` and activates `/backpack/guidance_active`.
+service checks `/backpack/path_valid` and the hazard/audio-health lease before
+activating `/backpack/guidance_active`.
 The existing A* planner continuously refreshes `/backpack/path`, and the direction
 node emits `/backpack/direction` only during an active guidance session. Say
 "stop guidance" to end it. Start the ROS backpack stack with
@@ -151,7 +162,7 @@ back through the tunnel to activate the ROS guidance gate on the Pi.
   - Streaming SSE: Responses use `:streamGenerateContent?alt=sse` with `answer` ordered first in the JSON schema, reducing time-to-first-token to ~0.58s.
   - Automatic image downscaling: Images >1024px are downscaled to ~100KB JPEG using Pillow, OpenCV, or macOS `sips` before transmission, cutting upload latency by ~95%.
 - `COMPANION_SPEECH_SPEED`: Playback speed factor for voice responses (default `1.15`, 15% faster). Supports ElevenLabs `voice_settings.speed` and local `say`/`espeak-ng`.
-- `--hazard-topic`: ROS 2 topic (default `/hazard_warning`). Any message plays two beeps and "Obstacle ahead." in every state (at most once per 2 s), cutting off less urgent speech. The payload is ignored for now; no detector publishes the topic yet, so use `scripts/fake_hazard.py` or `x` for bench tests.
+- `--hazard-topic`: ROS 2 topic (default `/hazard_warning`), carrying strict version-1 Stage A JSON snapshots. Events expire at 250 ms; producer heartbeat at 500 ms. Malformed/stale/future/out-of-order messages do not refresh sensing. Urgent/caution phrases repeat at most every 2/3 s per event, with escalation bypass. `scripts/fake_hazard.py` and keyboard `x` are simulated bench tests only.
 
 ### Raspberry Pi Production Deployment Notes
 

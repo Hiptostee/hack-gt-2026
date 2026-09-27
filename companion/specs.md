@@ -3,9 +3,9 @@
 > This was the voice-only design before integration. The current branch also
 > accepts spoken backpack guidance requests and gates the existing ROS direction
 > output; see `companion/README.md` for the current behavior.
-> For the current demo, the push-to-talk button, microphone, and spoken answer
-> are in the laptop browser. Gemini runs from the laptop web service; the Pi
-> supplies the ROS camera frame and guidance through an SSH tunnel.
+> The selected demo uses `PI_VOICE=1` on the Pi (button, microphone, speaker).
+> The laptop browser remains a fallback for scene assistance, but does not
+> supply the hazard/audio health lease now required for movement guidance.
 
 On-device voice interface for the wearable spatial guide. Replaces the
 phone/browser companion prototype in `companion/`.
@@ -19,7 +19,9 @@ triple tap and the shared audio owner are implemented on `feature/guardian`
 and unit-tested; Pi button timing is not yet validated. Audio hardware
 options remain open, with an open speaker likely for the demo and bone conduction
 the future product direction. Planned hazard behavior is not implemented merely
-because it appears in this spec.
+because it appears in this spec. Stage A geometry, strict hazard snapshots,
+local phrases and an expiring guidance permission are now implemented in the
+working tree; calibration, coverage and Pi performance are not verified.
 
 --- 
 
@@ -325,8 +327,13 @@ This service runs as a **separate process** from the navigate and warning nodes
 and must never block them.
 
 - **Hazard warnings preempt speech.** If the warning module raises an obstacle
-  alert while an answer is being read, duck or cut the speech. A scene
-  description is never more important than a stair edge.
+  alert, validate its schema/capture age, then cut lower-priority speech in every
+  state. Stage A speaks generic torso/head obstacles with direction and urgency;
+  floor/stair detection is not implemented. Health loss is spoken locally.
+- `/hazard/guidance_permitted` is a true/false lease from the companion event
+  loop; the direction node expires it after 500 ms. A true lease requires fresh
+  healthy depth/body pose, working audio/phrase assets and no urgent event.
+  Unmeasured calibration defaults, output loss and process death inhibit guidance.
 - After a preemption, do not silently resume mid-sentence. Play a short tone;
   once idle and warnings allow it, a single short press repeats the last answer.
   A tap during ordinary thinking/speaking cancels without automatic repeat (§2).

@@ -24,12 +24,14 @@ class RosCamera:
         self.subscription = self.node.create_subscription(Image, topic, self.receive,
                                                          qos_profile_sensor_data)
         if hazard_topic and on_hazard:
-            try:
-                from std_msgs.msg import String
-                self.hazard_sub = self.node.create_subscription(
-                    String, hazard_topic, lambda _m: on_hazard(), 10)
-            except Exception:
-                pass
+            from std_msgs.msg import Bool, String
+            # Reliable, volatile, keep-last-1. An invalid payload never becomes
+            # an alert and subscription failure must not silently disable warnings.
+            self.hazard_sub = self.node.create_subscription(
+                String, hazard_topic,
+                lambda m: on_hazard(m.data, self.node.get_clock().now().nanoseconds,
+                                    time.monotonic()), 1)
+            self.hazard_gate = self.node.create_publisher(Bool, "/hazard/guidance_permitted", 1)
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.node)
         self.thread = threading.Thread(target=self.spin, daemon=True)
@@ -40,6 +42,13 @@ class RosCamera:
             self.executor.spin()
         except ExternalShutdownException:
             pass
+
+    def hazard_clock(self):
+        return self.node.get_clock().now().nanoseconds
+
+    def permit_guidance(self, permitted):
+        from std_msgs.msg import Bool
+        self.hazard_gate.publish(Bool(data=permitted))
 
     def receive(self, message):
         stamp = message.header.stamp.sec + message.header.stamp.nanosec / 1e9
