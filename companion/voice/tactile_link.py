@@ -12,7 +12,7 @@ MAGIC = 0xA5
 PORT = 4210
 PERIOD_S = 0.05
 STATE_TIMEOUT_S = 0.4
-DIRECTION_FLAGS = {0: 0x01, 1: 0x02, 2: 0x04, 3: 0x02, 4: 0x04}
+DIRECTION_FLAGS = {0: 0x01, 1: 0x04, 2: 0x02, 3: 0}
 
 
 def flags_for_state(state):

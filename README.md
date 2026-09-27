@@ -292,17 +292,18 @@ while retaining A* obstacle avoidance. The map route is published as
 detected 3D target is `/backpack/goal`.
 
 With the backpack stack enabled, `/backpack/direction` publishes a single
-`std_msgs/UInt8` code at 5 Hz: `0` forward, `1` left, `2` right, `3` rotate
-left, `4` rotate right. Rotation commands start when the route heading differs
-from the wearer's yaw by about 60 degrees; smaller corrections use `1` or `2`.
-Direction codes are sent only after the voice companion activates
+`std_msgs/UInt8` code at 5 Hz: `0` forward, `1` rotate right, `2` rotate left,
+`3` stop. A heading error of about 18 degrees starts a rotation; hysteresis
+keeps it active until the error falls below about 10 degrees.
+Movement codes are sent only after the voice companion activates
 `/backpack/guidance_active`. That topic must be refreshed at least twice a second;
 its publisher goes inactive when the user says to stop or the companion exits.
 It compares the wearer's heading with a point 0.55 m along the A* route, with
-hysteresis to reduce flicker. It publishes no code when the path or tracking
-status is stale, the path is invalid, or the wearer has reached the route endpoint.
-For a demo, view the codes with `ros2 topic echo /backpack/direction`. An ESP32
-receiver should stop acting when codes stop arriving.
+hysteresis to reduce flicker. It publishes `3` when the path or tracking status
+is stale, the path is invalid, guidance is inactive, or the wearer reaches the
+route endpoint. For a demo, view the codes with
+`ros2 topic echo /backpack/direction`. The tactile bridge converts `3` to a
+neutral packet, and the ESP32 receiver also rests when packets stop arriving.
 
 The A* cost also prefers 0.55 m of obstacle clearance, and its raw grid result
 is reduced to collision-checked line-of-sight segments. Backpack positions are

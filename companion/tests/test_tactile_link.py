@@ -7,12 +7,13 @@ from companion.voice.tactile_link import GuidanceFeed, encode_packet, flags_for_
 
 class TactileLinkTests(unittest.TestCase):
     def test_direction_mapping_and_gate(self):
-        for direction, flags in [(0, 1), (1, 2), (2, 4), (3, 2), (4, 4)]:
+        for direction, flags in [(0, 1), (1, 4), (2, 2), (3, 0)]:
             self.assertEqual(flags_for_state({"active": True, "path_valid": True,
                                               "direction": direction}), flags)
         for state in (None, {}, {"active": False, "path_valid": True, "direction": 0},
                       {"active": True, "path_valid": False, "direction": 1},
                       {"active": True, "path_valid": True, "direction": None},
+                      {"active": True, "path_valid": True, "direction": 4},
                       {"active": True, "path_valid": True, "direction": 9}):
             self.assertEqual(flags_for_state(state), 0)
 

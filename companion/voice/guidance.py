@@ -44,7 +44,7 @@ class RosGuidance:
 
     def _direction(self, message):
         with self.lock:
-            self.direction = message.data if message.data in range(5) else None
+            self.direction = message.data if message.data in range(4) else None
             self.direction_at = time.monotonic()
 
     def snapshot(self):

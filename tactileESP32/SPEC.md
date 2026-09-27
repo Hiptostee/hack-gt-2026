@@ -71,8 +71,8 @@ Example: left with seq 200 → `A5 C8 02`.
 
 The integrated laptop sender is `companion.voice.tactile_link`. The Pi bridge
 exposes `/guidance/state` from ROS `/backpack/direction`, `/backpack/path_valid`
-and the voice guidance gate. Direction codes 0/1/2/3/4 map to
-front/left/right/left/right. A missing, invalid or stale state sends neutral.
+and the voice guidance gate. Direction codes 0/1/2/3 map to
+front/right/left/neutral. A missing, invalid or stale state sends neutral.
 The ESP32 also returns to rest after 500 ms without packets. The laptop launch
 starts the sender automatically.
 
