@@ -7,6 +7,48 @@ are the things that get lost.
 ---
 
 
+## 2026-09-27 — Beacon dashboard presentation alignment
+
+Started `ui/beacon-dashboard` from current main `7bb041f`, including the recent
+laptop obstacle-warning controls. Applied the root presentation's near-black,
+cyan/blue palette, lighthouse and custom triangle-A SVG, Montserrat/Inter/mono
+fonts with offline fallbacks, and restrained spatial grid. The responsive page
+separates perception/object selection, voice interaction and telemetry; Stop is
+in the sticky header, warning audio sits with hazard evidence, and simulation
+controls use a keyboard-accessible disclosure. The source indicator remains
+outside the disclosure. No new dependency or serving path was added.
+
+Preserved all existing DOM IDs and operator/backend contracts. Missing sensing
+is amber; urgent hazards are red. Simulated hazard messages carry their own label.
+Fixed radar-to-camera switching to retain static/missing-camera labels rather
+than calling every source live. Space on the new disclosure retains native
+activation instead of triggering push-to-talk. Existing Find/inspect/fresh-frame
+Guide, warning expiry/audio ownership and heartbeat behavior remain unchanged.
+
+Validation: 213 Python tests and 25 Node tests pass. New regressions cover camera
+source labels, simulated-versus-live hazard labels and disclosure keyboard use.
+The unified-page HTTP test now checks stable control IDs instead of old headings.
+All original IDs remain unique and present; inline JS syntax and diff whitespace
+checks pass. Chrome review at 1512px, 1024px and 390px found no horizontal overflow;
+camera/radar switching, simulator/urgent state, native Space activation and
+visible focus were checked. No browser console errors were captured. Preview
+used a labelled static test frame, disabled cloud credentials and no mic/camera
+permission. This does not establish real D415, audio or wearable performance.
+
+Included the newer standalone `.env` loading fix from main `70a65fb` as a
+file-level update after it arrived during this work. No branch merge, commit or
+push performed. Root design references remain untracked and unchanged.
+
+
+## 2026-09-27 — Automatic .env loading in standalone web test
+
+Standalone `python3 -m companion.voice.web_test` now loads `.env` by default (with
+configurable `--env-file`), aligning with `laptop_launch.py` and `demo_preflight.py`.
+This resolves missing Gemini/ElevenLabs API keys when launching `web_test` directly
+without manual shell export or `laptop_launch.py --standalone`.
+
+---
+
 ## 2026-09-27 — Laptop obstacle warnings in the dashboard
 
 User clarified that "navigate portion" meant object/obstacle warnings, not the
