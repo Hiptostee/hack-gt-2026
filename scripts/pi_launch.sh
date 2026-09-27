@@ -53,6 +53,7 @@ fi
 
 launch_args=(camera_profile:=640x480x15)
 mapping_arg_present=false
+imu_arg_present=false
 backpack_arg_present=false
 backpack_enabled=true
 model_arg_present=false
@@ -60,6 +61,7 @@ model_path=""
 for arg in "$@"; do
   case "$arg" in
     enable_mapping:=*) mapping_arg_present=true ;;
+    enable_imu:=*) imu_arg_present=true ;;
     enable_backpack_stack:=*)
       backpack_arg_present=true
       backpack_enabled="${arg#enable_backpack_stack:=}"
@@ -72,6 +74,9 @@ for arg in "$@"; do
 done
 if [[ "$mapping_arg_present" == false ]]; then
   launch_args+=(enable_mapping:=true)
+fi
+if [[ "$imu_arg_present" == false ]]; then
+  launch_args+=(enable_imu:=true)
 fi
 if [[ "$backpack_arg_present" == false ]]; then
   launch_args+=(enable_backpack_stack:=true)
@@ -104,7 +109,7 @@ if [[ "$backpack_enabled" == true || "$backpack_enabled" == 1 ]]; then
 fi
 launch_args+=("$@")
 
-echo "Starting camera, RGB-D odometry, Pi bridge, and requested mapping/backpack services (IMU and ICP opt-in)..."
+echo "Starting camera, RGB-D odometry, Pi bridge, and requested mapping/backpack services (IMU default on, ICP default off)..."
 ros2 launch realsense_mapper hardware.launch.py "${launch_args[@]}" &
 mapping_pid=$!
 wait -n "$router_pid" "$mapping_pid" || true

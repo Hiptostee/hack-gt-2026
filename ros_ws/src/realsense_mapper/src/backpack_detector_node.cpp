@@ -47,11 +47,11 @@ public:
     detection_publisher_ = create_publisher<std_msgs::msg::String>(
       "/yolo/black_backpack", 10);
     image_subscription_ = create_subscription<sensor_msgs::msg::Image>(
-      "/camera/color/image_raw", qos,
+      "/camera/color/image_raw", rclcpp::SensorDataQoS().keep_last(1),
       std::bind(&BackpackDetector::image_callback, this, _1));
 
     RCLCPP_INFO(
-      get_logger(), "YOLOX loaded; looking for dark COCO backpacks at %.1f FPS",
+      get_logger(), "YOLOX loaded; looking for dark COCO backpacks at up to %.1f FPS",
       max_inference_fps_);
   }
 
@@ -71,8 +71,8 @@ private:
   {
     const auto now = std::chrono::steady_clock::now();
     const double minimum_period = 1.0 / std::max(0.1, max_inference_fps_);
-    if (last_inference_.time_since_epoch().count() != 0 &&
-      std::chrono::duration<double>(now - last_inference_).count() < minimum_period)
+    if (last_inference_started_.time_since_epoch().count() != 0 &&
+      std::chrono::duration<double>(now - last_inference_started_).count() < minimum_period)
     {
       return;
     }
@@ -87,17 +87,20 @@ private:
       static_cast<int>(message->height), static_cast<int>(message->width), CV_8UC3,
       const_cast<unsigned char *>(message->data.data()), message->step);
 
+    // Bound the interval between starts, not the idle time after each forward pass.
+    last_inference_started_ = now;
     cv::Mat annotated = rgb.clone();
     std::vector<Detection> detections;
     try {
       detections = detect(rgb);
     } catch (const std::exception & error) {
-      last_inference_ = std::chrono::steady_clock::now();
       RCLCPP_ERROR_THROTTLE(
         get_logger(), *get_clock(), 5000, "YOLO inference failed: %s", error.what());
       return;
     }
 
+    // Let the planner begin matching depth while the display image is drawn.
+    publish_detection_message(message, detections);
     for (const auto & detection : detections) {
       cv::rectangle(annotated, detection.box, cv::Scalar(30, 255, 80), 3);
       std::ostringstream label;
@@ -131,10 +134,11 @@ private:
     output.step = static_cast<sensor_msgs::msg::Image::_step_type>(annotated.cols * 3);
     output.data.assign(annotated.datastart, annotated.dataend);
     annotated_publisher_->publish(std::move(output));
-    publish_detection_message(message, detections);
-    // Start the cooldown after inference, including when inference is slower
-    // than the configured period.
-    last_inference_ = std::chrono::steady_clock::now();
+    const auto elapsed_ms = std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - last_inference_started_).count();
+    RCLCPP_INFO_THROTTLE(
+      get_logger(), *get_clock(), 5000,
+      "YOLO frame processed in %.0f ms; %zu black backpacks", elapsed_ms, detections.size());
   }
 
   std::vector<Detection> detect(const cv::Mat & rgb)
@@ -280,7 +284,7 @@ private:
   int dark_value_threshold_;
   double minimum_dark_ratio_;
   cv::dnn::Net net_;
-  std::chrono::steady_clock::time_point last_inference_{};
+  std::chrono::steady_clock::time_point last_inference_started_{};
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscription_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr annotated_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr detection_publisher_;

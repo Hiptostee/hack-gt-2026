@@ -106,9 +106,10 @@ Pi camera bridge, RGB-D odometry, RTAB-Map mapping, and YOLO backpack stack.
 Defaults are synchronized 640x480 at
 15 FPS, `Odom/ImageDecimation=1`, an 8 Hz odometry cap, and a latest-frame
 processing policy. The script uses `/opt/models/yolox.onnx` if present;
-otherwise it downloads the model once to `data/models/yolox.onnx`. IMU and ICP
-are disabled. To run the odometry-only baseline again, pass
-`enable_mapping:=false enable_backpack_stack:=false`.
+otherwise it downloads the model once to `data/models/yolox.onnx`. The external
+MPU6050 IMU is enabled by default; ICP remains disabled. To run the visual
+odometry-only baseline again, pass `enable_mapping:=false
+enable_backpack_stack:=false enable_imu:=false`.
 The raw `/visual_odom` is filtered for invalid poses by `valid_visual_odom`,
 which republishes `/odometry/filtered` and `odom -> camera_link` with the
 original measurement timestamp. There is no EKF or pose smoothing node.
@@ -140,7 +141,7 @@ address (`0x68` by default; `0x69` is also common):
 ```bash
 ls /dev/i2c-*
 i2cdetect -y 1
-./scripts/pi_launch.sh enable_imu:=true
+./scripts/pi_launch.sh
 ```
 
 In another Pi terminal with ROS and Zenoh sourced, check:
@@ -155,19 +156,21 @@ alive and read its I2C error in the launch output. Override `imu_i2c_bus` and
 `imu_i2c_address` (decimal 104 or 105) if the device is on another bus/address.
 Keep the rig still for its five-second gyro calibration.
 
-The default camera-to-IMU translation is zero meters, a temporary placeholder.
-Measure the IMU center relative to `camera_link`, then pass `imu_x`, `imu_y`,
-and `imu_z` in meters. The default rotation assumes IMU X up, Y left, Z back;
-verify all signs against the mounted board and override `imu_qx`, `imu_qy`,
-`imu_qz`, `imu_qw` as needed. There is no two-meter offset. Verify orientation
-by tilting each axis before using the IMU to judge localization quality.
+The camera-to-IMU translation defaults to `imu_x:=-0.022`, `imu_y:=0.016`,
+`imu_z:=0.052` meters: 22 mm behind, 16 mm left, and 52 mm above the camera
+center. The IMU X-forward, Y-left, Z-up axes match `camera_link`, so the
+default rotation is the identity quaternion (`0, 0, 0, 1`). These values can
+be overridden with the `imu_x`, `imu_y`, `imu_z`, and `imu_q*` launch arguments.
+Verify the mounted board's axis directions by tilting each axis before using
+the IMU to judge localization quality.
 
 Mapping and the backpack stack are on by default in `./scripts/pi_launch.sh`.
 The YOLO detector runs at lower CPU priority with one OpenCV worker so camera
 tracking gets CPU time first. Inference may take longer as a result.
-The D415 has no built-in IMU. If an external MPU6050 is connected and
-`/imu/data_raw` is publishing, add `enable_imu:=true`. Disable YOLO and the
-planner for an odometry-only test with `enable_backpack_stack:=false`.
+The D415 has no built-in IMU. The Pi launcher expects an external MPU6050;
+check that `/imu/data_raw` is publishing. Pass `enable_imu:=false` if it is
+disconnected. Disable YOLO and the planner for an odometry-only test with
+`enable_backpack_stack:=false`.
 Try `enable_icp:=true` separately after that, comparing odometry delay and
 tracking resets against the RGB-D baseline. Keep loop-closure rejection
 thresholds at their RTAB-Map defaults while improving the underlying trajectory.
@@ -329,10 +332,14 @@ certified mobility aid and must not be the user's only navigation safeguard.
 
 ## Black-backpack detector
 
-The C++ detector runs the OpenCV Zoo YOLOX COCO model at most once every two
-seconds after each inference finishes, using two OpenCV CPU threads. It
-first selects COCO class 24 (`backpack`), then accepts detections whose inner
-crop is sufficiently dark. Accepted boxes are drawn in green and published on:
+The C++ detector runs the OpenCV Zoo YOLOX COCO model at up to 2 FPS, using
+one OpenCV CPU worker at lower process priority. It starts the next inference
+as soon as the rate limit allows and keeps only the newest pending camera frame.
+Actual FPS is limited by processing time on the Pi; the node logs that time
+every five seconds. Pass `backpack_inference_fps:=1.0` to the Pi launcher if
+the higher rate affects odometry. The detector first selects COCO class 24
+(`backpack`), then accepts detections whose inner crop is sufficiently dark.
+Accepted boxes are drawn in green and published on:
 
 - annotated RGB: `/yolo/annotated_image`
 - detection JSON: `/yolo/black_backpack`

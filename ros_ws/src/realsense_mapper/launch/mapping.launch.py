@@ -18,6 +18,7 @@ def generate_launch_description():
     camera_profile = LaunchConfiguration("camera_profile")
     enable_backpack_stack = LaunchConfiguration("enable_backpack_stack")
     backpack_model_path = LaunchConfiguration("backpack_model_path")
+    backpack_inference_fps = LaunchConfiguration("backpack_inference_fps")
     enable_companion_bridge = LaunchConfiguration("enable_companion_bridge")
     enable_mapping = LaunchConfiguration("enable_mapping")
     enable_imu = LaunchConfiguration("enable_imu")
@@ -28,8 +29,8 @@ def generate_launch_description():
     imu_i2c_bus = LaunchConfiguration("imu_i2c_bus")
     imu_i2c_address = LaunchConfiguration("imu_i2c_address")
 
-    # Measure these on the physical rig. Translation defaults to zero rather
-    # than the old, incorrect -2 metre lever arm.
+    # MPU6050 sensor center relative to camera_link: 22 mm behind, 16 mm left,
+    # 52 mm above. Its X-forward, Y-left, Z-up axes align with camera_link.
     imu_x = LaunchConfiguration("imu_x")
     imu_y = LaunchConfiguration("imu_y")
     imu_z = LaunchConfiguration("imu_z")
@@ -132,6 +133,7 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_profile", default_value="640x480x15"),
         DeclareLaunchArgument("enable_backpack_stack", default_value="false"),
         DeclareLaunchArgument("backpack_model_path", default_value="/opt/models/yolox.onnx"),
+        DeclareLaunchArgument("backpack_inference_fps", default_value="2.0"),
         DeclareLaunchArgument("enable_companion_bridge", default_value="true"),
         DeclareLaunchArgument("enable_mapping", default_value="false"),
         DeclareLaunchArgument("enable_imu", default_value="false"),
@@ -143,14 +145,13 @@ def generate_launch_description():
         DeclareLaunchArgument("odom_max_update_rate", default_value="8.0"),
         DeclareLaunchArgument("imu_i2c_bus", default_value="1"),
         DeclareLaunchArgument("imu_i2c_address", default_value="104"),
-        DeclareLaunchArgument("imu_x", default_value="0.0"),
-        DeclareLaunchArgument("imu_y", default_value="0.0"),
-        DeclareLaunchArgument("imu_z", default_value="0.0"),
-        # Keep your existing axis rotation as a starting point, but VERIFY it.
+        DeclareLaunchArgument("imu_x", default_value="-0.022"),
+        DeclareLaunchArgument("imu_y", default_value="0.016"),
+        DeclareLaunchArgument("imu_z", default_value="0.052"),
         DeclareLaunchArgument("imu_qx", default_value="0.0"),
-        DeclareLaunchArgument("imu_qy", default_value="-0.7071068"),
+        DeclareLaunchArgument("imu_qy", default_value="0.0"),
         DeclareLaunchArgument("imu_qz", default_value="0.0"),
-        DeclareLaunchArgument("imu_qw", default_value="0.7071068"),
+        DeclareLaunchArgument("imu_qw", default_value="1.0"),
 
         ExecuteProcess(
             cmd=["python3", "-m", "companion.voice.pi_bridge"],
@@ -246,7 +247,7 @@ def generate_launch_description():
                 "model_path": backpack_model_path,
                 "confidence_threshold": 0.18,
                 "nms_threshold": 0.45,
-                "max_inference_fps": 0.5,
+                "max_inference_fps": ParameterValue(backpack_inference_fps, value_type=float),
                 "require_dark": True,
                 "dark_value_threshold": 120,
                 "minimum_dark_ratio": 0.12,
