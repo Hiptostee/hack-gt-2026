@@ -12,6 +12,7 @@ import base64
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1861,9 +1862,24 @@ def main():
                         help=f"Gemini model (default: {DEFAULT_MODEL})")
     parser.add_argument("--no-open", action="store_true",
                         help="Don't auto-open the browser")
+    parser.add_argument("--env-file", type=Path,
+                        default=Path(__file__).resolve().parent.parent.parent / ".env",
+                        help="Path to .env file (default: repo root .env)")
     args = parser.parse_args()
     if args.ros and args.pi_url:
         parser.error("Choose --ros on the Pi or --pi-url on the laptop")
+
+    if args.env_file.is_file():
+        for line in args.env_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:]
+            k, sep, v = line.partition("=")
+            if sep:
+                parts = shlex.split(v, comments=True)
+                os.environ.setdefault(k.strip(), parts[0] if parts else "")
 
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     el_key = os.environ.get("ELEVENLABS_API_KEY", "")

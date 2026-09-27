@@ -7,6 +7,15 @@ are the things that get lost.
 ---
 
 
+## 2026-09-27 — Automatic .env loading in standalone web test
+
+Standalone `python3 -m companion.voice.web_test` now loads `.env` by default (with
+configurable `--env-file`), aligning with `laptop_launch.py` and `demo_preflight.py`.
+This resolves missing Gemini/ElevenLabs API keys when launching `web_test` directly
+without manual shell export or `laptop_launch.py --standalone`.
+
+---
+
 ## 2026-09-27 — Laptop obstacle warnings in the dashboard
 
 User clarified that "navigate portion" meant object/obstacle warnings, not the
