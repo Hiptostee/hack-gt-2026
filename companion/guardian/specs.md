@@ -2,7 +2,7 @@
 
 Conversational assistance mode for the wearable spatial guide, powered by
 ElevenLabs Agents (Conversational AI). For moments when the user is
-disoriented and wants a calm, adaptive voice that can check status, describe
+disoriented and wants a calm, adaptive voice that can check status, describe 
 the scene, and text a trusted contact.
 
 Status: spec revised 2026-09-26 after design review. The ElevenLabs agent is
@@ -31,13 +31,14 @@ a distinct calm voice, local client tools, and an application-controlled SMS
 path to one pre-configured contact. It is the primary ElevenLabs sponsor
 showcase, but it must earn that by serving the user, not by being bolted on.
 
-| | Double tap (unchanged) | Guardian Voice (new) |
-| --- | --- | --- |
-| Needs network | No | Yes |
-| Interaction | Fixed local status readout | Push-to-talk conversation |
-| Voice | Local TTS | ElevenLabs agent, distinct voice |
-| Actions | Status, last landmark | Status, scene description, SMS to trusted contact |
-| Contacts anyone | Never | Only after the confirmation flow in §7 |
+
+|                 | Double tap (unchanged)     | Guardian Voice (new)                              |
+| --------------- | -------------------------- | ------------------------------------------------- |
+| Needs network   | No                         | Yes                                               |
+| Interaction     | Fixed local status readout | Push-to-talk conversation                         |
+| Voice           | Local TTS                  | ElevenLabs agent, distinct voice                  |
+| Actions         | Status, last landmark      | Status, scene description, SMS to trusted contact |
+| Contacts anyone | Never                      | Only after the confirmation flow in §7           |
 
 ### Scope boundary
 
@@ -57,10 +58,11 @@ showcase, but it must earn that by serving the user, not by being bolted on.
 
 Two ways in. Neither overlaps hold-to-talk.
 
-| Path | How | Needs network |
-| --- | --- | --- |
-| Spoken | Ask normally ("I'm lost", "I need guardian mode"). Gemini returns `device_action: "guardian"`. | Yes (Gemini) |
-| Physical | **Triple tap** — three short presses within the double-tap window chain | Checked after the gesture |
+
+| Path     | How                                                                                           | Needs network             |
+| -------- | --------------------------------------------------------------------------------------------- | ------------------------- |
+| Spoken   | Ask normally ("I'm lost", "I need guardian mode"). Gemini returns`device_action: "guardian"`. | Yes (Gemini)              |
+| Physical | **Triple tap** — three short presses within the double-tap window chain                      | Checked after the gesture |
 
 The 3-second hold from the first draft is **dropped**: an ordinary question can
 last longer than 3 s, and a threshold tone must fire while the button is still
@@ -95,13 +97,14 @@ Entry (spoken or triple tap)
 
 ### Controls inside Guardian — DECIDED: push-to-talk
 
-| Gesture | Behavior |
-| --- | --- |
-| Hold (≥ `HOLD`) | Talk to the agent. Listening earcon; mic PCM streams only while held. |
-| Release | Stop streaming real audio; keep sending digital silence so the agent's turn detection ends the user turn. |
-| Single tap | Stop the agent's current speech **locally**: flush Guardian playback, discard chunks from that response. Session stays open. |
-| Double tap | **Exit locally**: close the socket, descending tone, local TTS "Guardian ended." then the local status readout. Works with no network. |
-| Triple tap | Treated as double tap (exit). |
+
+| Gesture         | Behavior                                                                                                                               |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Hold (≥`HOLD`) | Talk to the agent. Listening earcon; mic PCM streams only while held.                                                                  |
+| Release         | Stop streaming real audio; keep sending digital silence so the agent's turn detection ends the user turn.                              |
+| Single tap      | Stop the agent's current speech**locally**: flush Guardian playback, discard chunks from that response. Session stays open.            |
+| Double tap      | **Exit locally**: close the socket, descending tone, local TTS "Guardian ended." then the local status readout. Works with no network. |
+| Triple tap      | Treated as double tap (exit).                                                                                                          |
 
 Why push-to-talk rather than hands-free:
 
@@ -147,23 +150,25 @@ never use the companion worker queue.
 No new hardware: existing USB mic, existing speaker, existing GPIO button,
 existing ROS camera topic. Network required.
 
-| Dependency | Use |
-| --- | --- |
+
+| Dependency                                                                       | Use                                                                |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `elevenlabs` Python SDK (`Conversation`, `ClientTools`, custom `AudioInterface`) | Session, events, tool dispatch. Pin the version at implementation. |
-| Shared audio owner (hazard milestone 2) | All output. Guardian is one producer. |
-| Gemini (existing `companion/voice/gemini.py`) | `describe_scene` |
-| Twilio REST API (plain HTTPS via `urllib`, no SDK needed) | SMS submit and status lookup |
+| Shared audio owner (hazard milestone 2)                                          | All output. Guardian is one producer.                              |
+| Gemini (existing`companion/voice/gemini.py`)                                     | `describe_scene`                                                   |
+| Twilio REST API (plain HTTPS via`urllib`, no SDK needed)                         | SMS submit and status lookup                                       |
 
 Environment:
 
-| Variable | Purpose |
-| --- | --- |
-| `ELEVENLABS_API_KEY` | Existing. Must include Agents/ConvAI permission — the current key may be TTS-only (see `speech.py`). |
-| `ELEVENLABS_AGENT_ID` | Guardian agent |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` | Twilio |
-| `GUARDIAN_CONTACT_NUMBER`, `GUARDIAN_CONTACT_NAME` | The one trusted contact. Fixed by configuration, never by the model. |
-| `GUARDIAN_USER_NAME` | Name used in the SMS text |
-| `GUARDIAN_SMS` | `fake` prints the text instead of sending it; `twilio` sends through the Twilio REST API (needs the Twilio variables and `GUARDIAN_CONTACT_NUMBER`). Unset or incomplete: texting unavailable. |
+
+| Variable                                                        | Purpose                                                                                                                                                                                        |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ELEVENLABS_API_KEY`                                            | Existing. Must include Agents/ConvAI permission — the current key may be TTS-only (see`speech.py`).                                                                                           |
+| `ELEVENLABS_AGENT_ID`                                           | Guardian agent                                                                                                                                                                                 |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` | Twilio                                                                                                                                                                                         |
+| `GUARDIAN_CONTACT_NUMBER`, `GUARDIAN_CONTACT_NAME`              | The one trusted contact. Fixed by configuration, never by the model.                                                                                                                           |
+| `GUARDIAN_USER_NAME`                                            | Name used in the SMS text                                                                                                                                                                      |
+| `GUARDIAN_SMS`                                                  | `fake` prints the text instead of sending it; `twilio` sends through the Twilio REST API (needs the Twilio variables and `GUARDIAN_CONTACT_NUMBER`). Unset or incomplete: texting unavailable. |
 
 Missing Twilio variables disable SMS only; the agent is told SMS is unavailable
 via a dynamic variable and must say so if asked.
@@ -199,17 +204,18 @@ entry ─► GuardianController (companion/guardian/session.py)
 
 ### 4.1 States
 
-| State | Mic to cloud | Tools | Exit by double tap |
-| --- | --- | --- | --- |
-| `precheck` | No | No | n/a (instant) |
-| `opening` (cancel window + connect) | No | Rejected | Yes (tap = cancel) |
-| `active.idle` | Silence | Yes | Yes |
-| `active.user_talking` (button held) | Real PCM | Yes | Yes |
-| `active.agent_speaking` | Silence | Yes | Yes; single tap flushes speech |
-| `active.tool_running` | Silence / PTT | In progress | Yes; late result discarded |
-| `active.sms_pending` | PTT | `prepare_sms` rejected | Yes; draft cancelled |
-| `hazard` (overlay on any active state) | Forced silence | Paused | Yes |
-| `closing` | No | Rejected | — |
+
+| State                                  | Mic to cloud   | Tools                  | Exit by double tap             |
+| -------------------------------------- | -------------- | ---------------------- | ------------------------------ |
+| `precheck`                             | No             | No                     | n/a (instant)                  |
+| `opening` (cancel window + connect)    | No             | Rejected               | Yes (tap = cancel)             |
+| `active.idle`                          | Silence        | Yes                    | Yes                            |
+| `active.user_talking` (button held)    | Real PCM       | Yes                    | Yes                            |
+| `active.agent_speaking`                | Silence        | Yes                    | Yes; single tap flushes speech |
+| `active.tool_running`                  | Silence / PTT  | In progress            | Yes; late result discarded     |
+| `active.sms_pending`                   | PTT            | `prepare_sms` rejected | Yes; draft cancelled           |
+| `hazard` (overlay on any active state) | Forced silence | Paused                 | Yes                            |
+| `closing`                              | No             | Rejected               | —                             |
 
 Every session gets a `session_id`; every agent response and tool call is
 tagged with it. Anything arriving for an old session or an interrupted
@@ -238,13 +244,14 @@ Guardian speech. On a warning:
 
 Sent as `dynamic_variables` in the conversation initiation data:
 
-| Variable | Source |
-| --- | --- |
-| `last_observation` | "The camera saw a Room 204 sign at 3:52 PM." or "No landmark has been observed." Built from label + **capture time** (§8). |
-| `status` | `status_text()` — the same function double tap uses |
-| `contact_name` | `GUARDIAN_CONTACT_NAME`, or empty |
-| `sms_available` | `yes` / `no` |
-| `time` | Local time |
+
+| Variable           | Source                                                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `last_observation` | "The camera saw a Room 204 sign at 3:52 PM." or "No landmark has been observed." Built from label +**capture time** (§8). |
+| `status`           | `status_text()` — the same function double tap uses                                                                       |
+| `contact_name`     | `GUARDIAN_CONTACT_NAME`, or empty                                                                                          |
+| `sms_available`    | `yes` / `no`                                                                                                               |
+| `time`             | Local time                                                                                                                 |
 
 The first message uses these so the greeting is immediate and specific.
 
@@ -290,12 +297,13 @@ Rules:
 
 ### Client tools
 
-| Tool | Params | Waits for response | Response timeout | Notes |
-| --- | --- | --- | --- | --- |
-| `get_status` | none | yes | 5 s | Returns `status_text()` + the observation trail (§7) |
-| `describe_scene` | none | yes | 25 s (local deadline 8 s) | §8 |
-| `prepare_sms` | `note` (string, ≤ 160 chars, optional) | yes | 25 s (returns after the local preview finishes) | Only prepares; §7 |
-| `end_call` | — | — | — | Built-in system tool |
+
+| Tool             | Params                                  | Waits for response | Response timeout                                | Notes                                                |
+| ---------------- | --------------------------------------- | ------------------ | ----------------------------------------------- | ---------------------------------------------------- |
+| `get_status`     | none                                    | yes                | 5 s                                             | Returns`status_text()` + the observation trail (§7) |
+| `describe_scene` | none                                    | yes                | 25 s (local deadline 8 s)                       | §8                                                  |
+| `prepare_sms`    | `note` (string, ≤ 160 chars, optional) | yes                | 25 s (returns after the local preview finishes) | Only prepares; §7                                   |
+| `end_call`       | —                                      | —                 | —                                              | Built-in system tool                                 |
 
 There is **no** tool that sends an SMS. Tool responses must fit the client
 tool response timeout configured on the agent; every tool has a local deadline
@@ -315,22 +323,23 @@ it does not solve echo, which push-to-talk does.
 All of these announcements are local (earcon + local TTS through the audio
 owner) unless stated otherwise.
 
-| Condition | Behavior |
-| --- | --- |
-| No network / precheck fails at entry | Local help/status, then "Guardian needs the network." Normal mode. |
-| Signed URL or connect fails (auth, 4xx, 5xx) | Error earcon, "Guardian isn't available right now.", local status. Normal mode. |
-| Not connected 8 s after entry | Same as connect failure. |
-| Key lacks Agents permission | Same as connect failure; stderr names the permission. |
-| Connection drops mid-session | Detected by socket close or liveness timeout (no events or pings for 10 s). "I lost the connection to guardian mode." + local status. Normal mode. Do **not** auto-reconnect a session with an SMS in flight; never replay a tool call. |
-| Session open but no agent reply 12 s after a user turn | Working earcon at 5 s; at 12 s "Guardian isn't responding. Double tap to leave." Keep the session. |
-| Server-ended session (max duration, `end_call`) | Descending tone, "Guardian ended.", local status. Not reported as a failure. |
-| Camera has no fresh frame | Tool returns "The camera isn't sending images right now." |
-| Gemini slow / failing | Local deadline 8 s; tool returns "The image service didn't respond." Late results dropped. |
-| Twilio not configured | `sms_available=no`; tool returns unavailable. |
-| Twilio submit fails definitely (4xx/5xx with error) | Status update "The message could not be sent." |
-| Twilio outcome unknown (timeout after request left) | "I couldn't confirm whether it was sent." **No automatic retry.** |
-| Hazard during Guardian | §4.2 |
-| Audio output device lost | Governed by the companion/hazard audio failure policy; Guardian closes. |
+
+| Condition                                              | Behavior                                                                                                                                                                                                                               |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No network / precheck fails at entry                   | Local help/status, then "Guardian needs the network." Normal mode.                                                                                                                                                                     |
+| Signed URL or connect fails (auth, 4xx, 5xx)           | Error earcon, "Guardian isn't available right now.", local status. Normal mode.                                                                                                                                                        |
+| Not connected 8 s after entry                          | Same as connect failure.                                                                                                                                                                                                               |
+| Key lacks Agents permission                            | Same as connect failure; stderr names the permission.                                                                                                                                                                                  |
+| Connection drops mid-session                           | Detected by socket close or liveness timeout (no events or pings for 10 s). "I lost the connection to guardian mode." + local status. Normal mode. Do**not** auto-reconnect a session with an SMS in flight; never replay a tool call. |
+| Session open but no agent reply 12 s after a user turn | Working earcon at 5 s; at 12 s "Guardian isn't responding. Double tap to leave." Keep the session.                                                                                                                                     |
+| Server-ended session (max duration,`end_call`)         | Descending tone, "Guardian ended.", local status. Not reported as a failure.                                                                                                                                                           |
+| Camera has no fresh frame                              | Tool returns "The camera isn't sending images right now."                                                                                                                                                                              |
+| Gemini slow / failing                                  | Local deadline 8 s; tool returns "The image service didn't respond." Late results dropped.                                                                                                                                             |
+| Twilio not configured                                  | `sms_available=no`; tool returns unavailable.                                                                                                                                                                                          |
+| Twilio submit fails definitely (4xx/5xx with error)    | Status update "The message could not be sent."                                                                                                                                                                                         |
+| Twilio outcome unknown (timeout after request left)    | "I couldn't confirm whether it was sent."**No automatic retry.**                                                                                                                                                                       |
+| Hazard during Guardian                                 | §4.2                                                                                                                                                                                                                                  |
+| Audio output device lost                               | Governed by the companion/hazard audio failure policy; Guardian closes.                                                                                                                                                                |
 
 ---
 
@@ -373,12 +382,13 @@ the application can send it.
 4. **Send.** The app submits to Twilio once, records the Message SID, and sends
    a `contextual_update` to the agent with the result:
 
-   | Known outcome | Update / what the agent says |
-   | --- | --- |
-   | Request accepted (queued/sent) | "Your message was submitted." |
-   | Status becomes `delivered` (polled up to 15 s) | "Delivery was confirmed." |
-   | `failed` / `undelivered` / definite error | "The message could not be sent." |
-   | Outcome unknown | "I couldn't confirm whether it was sent." |
+
+   | Known outcome                                 | Update / what the agent says              |
+   | --------------------------------------------- | ----------------------------------------- |
+   | Request accepted (queued/sent)                | "Your message was submitted."             |
+   | Status becomes`delivered` (polled up to 15 s) | "Delivery was confirmed."                 |
+   | `failed` / `undelivered` / definite error     | "The message could not be sent."          |
+   | Outcome unknown                               | "I couldn't confirm whether it was sent." |
 
    Delivered does not mean read, or that anyone is coming. Never say so.
 5. **Limits.** One send per draft; at most 3 sends per session; no automatic
@@ -434,13 +444,14 @@ and add a trial prefix; verify setup in the spike.
 
 Data flow:
 
-| Data | Goes to |
-| --- | --- |
-| Mic audio, only while the button is held in an active session | ElevenLabs |
-| Agent transcript and responses | ElevenLabs (retained per agent privacy settings) |
-| Camera frames, only on `describe_scene` | Gemini |
-| Scene description text | Back into the ElevenLabs conversation |
-| Approved SMS text + contact number | Twilio (Twilio retains message logs) |
+
+| Data                                                          | Goes to                                          |
+| ------------------------------------------------------------- | ------------------------------------------------ |
+| Mic audio, only while the button is held in an active session | ElevenLabs                                       |
+| Agent transcript and responses                                | ElevenLabs (retained per agent privacy settings) |
+| Camera frames, only on`describe_scene`                        | Gemini                                           |
+| Scene description text                                        | Back into the ElevenLabs conversation            |
+| Approved SMS text + contact number                            | Twilio (Twilio retains message logs)             |
 
 - Configure ElevenLabs audio saving and conversation retention deliberately on
   the agent; record the settings in `agent.md`. Do not claim "nothing is
@@ -456,15 +467,16 @@ Data flow:
 
 Measure median, p95 and worst on the Pi with the full stack running.
 
-| Interval | Target |
-| --- | --- |
-| Entry gesture → rising tone | ≤ 150 ms |
-| Cancel window end → first greeting audio | ≤ 1.5 s (socket connects during the window) |
-| Button release → first agent audio | ≤ 2 s (turn end + ASR + LLM + TTS + network) |
-| "What's around me" → description audio | ≤ 5 s |
-| SMS "yes" → submission status spoken | ≤ 3 s |
-| Double tap → Guardian audio stops | ≤ 150 ms |
-| Hazard → warning onset during Guardian | Hazard spec budget (≤ 150 ms tone onset) |
+
+| Interval                                  | Target                                        |
+| ----------------------------------------- | --------------------------------------------- |
+| Entry gesture → rising tone              | ≤ 150 ms                                     |
+| Cancel window end → first greeting audio | ≤ 1.5 s (socket connects during the window)  |
+| Button release → first agent audio       | ≤ 2 s (turn end + ASR + LLM + TTS + network) |
+| "What's around me" → description audio   | ≤ 5 s                                        |
+| SMS "yes" → submission status spoken     | ≤ 3 s                                        |
+| Double tap → Guardian audio stops        | ≤ 150 ms                                     |
+| Hazard → warning onset during Guardian   | Hazard spec budget (≤ 150 ms tone onset)     |
 
 The 75 ms ElevenLabs figure is model inference only and is not a
 conversational latency.
@@ -505,16 +517,17 @@ conversational latency.
 
 ## 13. Implementation order
 
-| Step | Work | Evidence before continuing |
-| --- | --- | --- |
-| 0 | Spike: dashboard agent via web widget; confirm key has Agents permission; one Twilio SMS by curl to a verified number | All three work by hand. **Agent configured, key verified, laptop smoke test passed; Twilio by hand pending (no account).** |
-| 1 | Extract `status_text()`; remove locator code; add triple-tap chain, `guardian` device action, `g` dev key | Double tap and triple tap classified correctly in tests. **Done (`e450198`); triple tap and the `guardian` action now open Guardian.** |
-| 2 | Shared audio owner (hazard milestone 2) | Hazard preempts fake Guardian playback; late chunks dropped. **Done: `Audio.stream(priority)` is the producer API Guardian will use; the owner's tests cover preemption and late chunks.** |
-| 3 | `GuardianController` + custom `AudioInterface`, `get_status`, `end_call`, push-to-talk, double-tap exit | Real conversation on the Pi; exit and offline fallback work. **Built; live on a Mac only (synthesized speech, keyboard `g`/`h`).** |
-| 4 | `describe_scene` | Freshness, deadline, late-result discard. **Built and tested; live Gemini call 1.1 s.** |
-| 5 | `SmsGate` with a fake sender | Criterion 7 passes in tests. **Passes; live run sent exactly one fake text after a spoken yes.** |
-| 6 | Real Twilio | Criterion 6 with verified contact. **`TwilioSender` built and mock-tested; no account or real send yet.** |
-| 7 | Full-stack run | §11 measured and recorded; criteria 10–13 |
+
+| Step | Work                                                                                                                  | Evidence before continuing                                                                                                                                                                |
+| ---- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Spike: dashboard agent via web widget; confirm key has Agents permission; one Twilio SMS by curl to a verified number | All three work by hand.**Agent configured, key verified, laptop smoke test passed; Twilio by hand pending (no account).**                                                                 |
+| 1    | Extract`status_text()`; remove locator code; add triple-tap chain, `guardian` device action, `g` dev key              | Double tap and triple tap classified correctly in tests.**Done (`e450198`); triple tap and the `guardian` action now open Guardian.**                                                     |
+| 2    | Shared audio owner (hazard milestone 2)                                                                               | Hazard preempts fake Guardian playback; late chunks dropped.**Done: `Audio.stream(priority)` is the producer API Guardian will use; the owner's tests cover preemption and late chunks.** |
+| 3    | `GuardianController` + custom `AudioInterface`, `get_status`, `end_call`, push-to-talk, double-tap exit               | Real conversation on the Pi; exit and offline fallback work.**Built; live on a Mac only (synthesized speech, keyboard `g`/`h`).**                                                         |
+| 4    | `describe_scene`                                                                                                      | Freshness, deadline, late-result discard.**Built and tested; live Gemini call 1.1 s.**                                                                                                    |
+| 5    | `SmsGate` with a fake sender                                                                                          | Criterion 7 passes in tests.**Passes; live run sent exactly one fake text after a spoken yes.**                                                                                           |
+| 6    | Real Twilio                                                                                                           | Criterion 6 with verified contact.**`TwilioSender` built and mock-tested; no account or real send yet.**                                                                                  |
+| 7    | Full-stack run                                                                                                        | §11 measured and recorded; criteria 10–13                                                                                                                                               |
 
 Backup demo: the browser simulator (`companion/static/`) with the ElevenLabs
 JS SDK, which gets browser echo cancellation. If used, say so in the demo.
@@ -526,17 +539,18 @@ navigation inhibit.
 
 ## 14. Open decisions
 
-| Item | Status |
-| --- | --- |
-| Guardian voice ID | DECIDED: `cjVigY5qzO86Huf0OWal` ([agent.md](agent.md)); distinctness from the companion voice still to be judged by ear |
-| Agent LLM | DECIDED: Gemini 3.8 Flash |
-| TTS model | DECIDED: `eleven_flash_v2` |
-| Voice stability / speed | Currently 0.5 / 1.0; spec target 0.7 / 0.95 — TO BE TUNED by ear |
-| Provider max conversation duration | DECIDED: 600 s; expiry handled per §6 |
-| Agent privacy | DECIDED: voice recording off, zero retention mode on |
-| Triple-tap window delay on double tap | TO BE VALIDATED on hardware |
-| Twilio account and verified test contact | TO BE DONE before step 6 |
-| Voice call to contact | STRETCH — ElevenLabs Twilio outbound calling is the likely path |
-| Timed observation trail in the SMS and `get_status` | IMPLEMENTED (§7, [plan §12c](../../plan.md#12c-timed-trail-of-observations-in-guardians-text)); preview length with three entries TO BE CHECKED on the Pi |
-| Other languages | TO PURSUE — [plan §12d](../../plan.md#12d-other-languages). Needs a multilingual TTS model instead of `eleven_flash_v2` and the agent's language settings; local announcements and the SMS preview stay in the device language |
-| Scene snapshot sharing to contact | OUT OF SCOPE |
+
+| Item                                               | Status                                                                                                                                                                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Guardian voice ID                                  | DECIDED:`cjVigY5qzO86Huf0OWal` ([agent.md](agent.md)); distinctness from the companion voice still to be judged by ear                                                                                                          |
+| Agent LLM                                          | DECIDED: Gemini 3.8 Flash                                                                                                                                                                                                       |
+| TTS model                                          | DECIDED: Flash (eleven_flash_v2_5, multilingual, ~98 ms latency)                                                                                                                           |
+| Voice stability / speed                            | Currently 0.5 / 1.0; spec target 0.7 / 0.95 — TO BE TUNED by ear                                                                                                                                                               |
+| Provider max conversation duration                 | DECIDED: 600 s; expiry handled per §6                                                                                                                                                                                          |
+| Agent privacy                                      | DECIDED: voice recording off, zero retention mode on                                                                                                                                                                            |
+| Triple-tap window delay on double tap              | TO BE VALIDATED on hardware                                                                                                                                                                                                     |
+| Twilio account and verified test contact           | TO BE DONE before step 6                                                                                                                                                                                                        |
+| Voice call to contact                              | STRETCH — ElevenLabs Twilio outbound calling is the likely path                                                                                                                                                                |
+| Timed observation trail in the SMS and`get_status` | IMPLEMENTED (§7,[plan §12c](../../plan.md#12c-timed-trail-of-observations-in-guardians-text)); preview length with three entries TO BE CHECKED on the Pi                                                                      |
+| Other languages                                    | IMPLEMENTED — [plan §12d](../../plan.md#12d-other-languages), [specs](../i18n/specs.md). Companion, hazards, Gemini, and local speech support EN/KO/ZH/JA/ES. Guardian agent uses multilingual Flash v2.5. |
+| Scene snapshot sharing to contact                  | OUT OF SCOPE                                                                                                                                                                                                                    |

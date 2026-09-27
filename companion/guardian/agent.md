@@ -26,17 +26,18 @@ curl -s -H "xi-api-key: $ELEVENLABS_API_KEY" \
 | Setting | Value |
 | --- | --- |
 | LLM | `gemini-3.8-flash`, temperature 0 |
-| Language | English |
-| TTS model | `eleven_flash_v2`, expressive mode off |
+| Language | English (default), multilingual auto-detect via prompt |
+| TTS model | `Flash` (`eleven_flash_v2_5`), ~98 ms latency, expressive mode off |
 | Voice ID | `cjVigY5qzO86Huf0OWal` |
 | Stability / speed / similarity | 0.5 / 1.0 / 0.8 (spec target: 0.7 / 0.95) |
 | Agent output audio | `pcm_16000` |
 | User input audio | `pcm_16000` |
 
-Planned, not applied: supporting other languages
-([plan §12d](../../plan.md#12d-other-languages)) needs a multilingual TTS
-model in place of the English-only `eleven_flash_v2`, plus the agent's
-language settings. Update this record when the dashboard changes.
+**Multilingual support:** Flash in the dashboard is Flash v2.5 (`eleven_flash_v2_5`),
+which natively supports 32 languages (EN, KO, ZH, JA, ES, etc.). The agent prompt
+instructs the LLM to respond in the user's spoken language while keeping tool
+arguments in English. Local device announcements and SMS previews use the
+`DEVICE_LANG` setting from `companion/i18n`.
 
 ## Conversation limits
 

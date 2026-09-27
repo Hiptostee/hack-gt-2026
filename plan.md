@@ -604,22 +604,18 @@ Preview length with a full trail not yet checked on the Pi.
 
 ### 12d. Other languages
 
-- Scene questions: Gemini answers in the language the user spoke.
-  `device_action` values and other schema fields stay English. The companion's
-  default TTS model, `eleven_flash_v2_5`, is multilingual; check that the
-  chosen voice sounds acceptable in each demo language.
-- Guardian: the agent is configured for English with `eleven_flash_v2`, which
-  is English-only. Other languages need a multilingual TTS model and the
-  agent's additional-language settings; verify the options in the ElevenLabs
-  dashboard and record them in [agent.md](companion/guardian/agent.md).
-- Local offline speech stays in one configured device language for now: the
-  hazard phrase, double-tap help/status, local error messages, the SMS preview
-  and exit announcements. Hazard warnings must never depend on the cloud or on
-  detecting a language.
-- SMS text stays in the contact's language (English initially), because the
-  contact reads it, not the user.
-- **TO BE DECIDED:** which languages to demo; whether local phrases follow a
-  configured language (`espeak-ng`/`say` voices and a pre-rendered hazard
-  phrase per language).
+- **IMPLEMENTED (`d14e428`):** Full multilingual support for English (`en`),
+  Korean (`ko`), Chinese (`zh`), Japanese (`ja`), and Spanish (`es`).
+- Scene questions: Gemini system prompt instructs answering in the user's spoken
+  language while keeping `device_action` and schema fields in English. The
+  companion's cloud TTS (`eleven_flash_v2_5`) is natively multilingual.
+- Guardian: the agent uses `Flash` (`eleven_flash_v2_5`, ~98 ms latency), which
+  supports 32 languages. Prompt configured to reply in the user's spoken language
+  while tool calls stay in English.
+- Local offline speech: configured via `DEVICE_LANG` env var (default: `en`).
+  The phrase table in `companion/i18n/__init__.py` provides offline translations
+  for all hazard warnings, status/battery announcements, error messages, and SMS
+  previews, selecting `espeak-ng` or macOS `say` voices per language.
+- SMS text stays in English for the contact; spoken preview is in `DEVICE_LANG`.
 - **TO BE VALIDATED:** transcription and answer quality per language on the
-  event network.
+  event network and hardware audio by ear.
