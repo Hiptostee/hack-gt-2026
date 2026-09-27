@@ -9,7 +9,7 @@ Visualization Manager:
       Enabled: true
       Cell Size: 1
       Plane: XY
-      Reference Frame: map
+      Reference Frame: odom
     - Class: rviz_default_plugins/TF
       Name: TF
       Enabled: true
@@ -51,7 +51,7 @@ Visualization Manager:
         Reliability Policy: Best Effort
   Global Options:
     Background Color: 32; 34; 38
-    Fixed Frame: map
+    Fixed Frame: odom
     Frame Rate: 30
   Name: root
   Tools:

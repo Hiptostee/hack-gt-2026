@@ -273,6 +273,10 @@ RViz is preconfigured for:
 - backpack route over the occupancy map
 - YOLO-annotated camera image with the projected route and TF
 
+RViz uses `odom` as its fixed frame so the camera remains visible during the
+odometry-only baseline. The `map` frame and map displays become available after
+starting the Pi with `enable_mapping:=true`.
+
 When a backpack has valid aligned depth, the planner transforms its center into
 the map, selects a goal 0.4 m short of the object, and plans through
 known-free cells. A configurable turn penalty favors long straight segments
