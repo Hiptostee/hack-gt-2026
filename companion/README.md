@@ -1,5 +1,19 @@
 # Scene and help companion
 
+## Laptop demo (2026-09-27)
+
+Use the [Beacon runbook](../docs/Beacon-Laptop-Demo.md) for the integrated demo.
+`python3 -m companion.voice.web_test --pi-url http://127.0.0.1:8081` now opens
+the dashboard at `/`, with laptop hold-to-talk, typed questions, stop/repeat,
+Guardian and **Find → inspect → Guide** alongside the original telemetry, radar
+and judge controls. `/demo` is an alias for the same page. Finding only highlights
+an object; Guide identifies it again in a fresh frame before asking the Pi for a
+route. Click **Enable mic** before using hold-to-talk. The launcher at
+`../scripts/laptop_launch.py` loads `.env` and makes Docker optional. Scene audio
+has one browser playback path; Guardian uses native laptop audio. Demo SMS always
+uses the fake sender. Contract: [demo/specs.md](demo/specs.md).
+
+
 Two front ends share this package:
 
 - **`companion.voice`** — the on-device voice service. One button, a microphone,

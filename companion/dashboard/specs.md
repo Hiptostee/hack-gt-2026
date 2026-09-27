@@ -1,5 +1,47 @@
 # Judge and Observer Debug Dashboard — Specification
 
+## Unified operator dashboard (2026-09-27)
+
+The existing dashboard design becomes the single judging/operator interface at
+both `/` and `/demo`. Keep its telemetry, hand visuals, simulator, language
+switcher, radar, console and camera. Add a Find object card and the laptop demo
+controls within that design; retire the separate demo HTML.
+
+Find is a two-step interaction: enter an object name, then inspect its labelled
+box on the exact image used for recognition. Finding never calls the planner or
+starts guidance, even if Gemini returns a navigation action. A successful find
+stores a server-owned selection token for 60 seconds. Guide to this object uses
+that token, acquires a new live frame and re-identifies the same object label
+before requesting the depth/planner route. This avoids applying an old box to a
+new image. Multiple identical objects remain ambiguous; use one distinct target
+for this demo. Failure to see it again cannot reuse the previous box.
+
+Stop, a new find, expiry, or Guardian entry invalidates the selection. Typed and
+spoken questions use the shared session; Guardian has start/end and the same
+hold-to-talk control. The dashboard owns the browser heartbeat, cancellation
+and audio handoff previously provided only by `/demo`. Late image decodes or
+cloud replies must not restore cancelled targets or speech. Static/webcam input
+can locate an object but cannot produce depth guidance. Existing hazard gates
+and simulated-only SMS remain unchanged.
+
+Acceptance: find never invokes guidance; guide requires a valid selection and
+uses a fresh frame; no-match and expiry cannot reuse a target; stop/Guardian
+invalidate selection; both URLs serve the same dashboard; browser UI shows the
+find/confirm/guide state and retains all judge widgets.
+
+## Measurement honesty correction (2026-09-27)
+
+Uninstrumented FPS and latency values are now `null`, not fixed 30/33/16/42 ms
+values or an asserted safety-budget pass. Unknown latency renders unmeasured.
+The radar is explicitly illustrative, not a live costmap/path. Simulation remains
+display-only and labelled. Direction 3/4 means rotate left/right; neither is stop.
+Both `/demo` and `/` now serve the unified operator dashboard described above.
+
+
+**Original observer proposal below:** the unified operator contract above
+supersedes its observer-only assumptions. Some proposed feeds and transcript
+controls below remain future work; consult `log.md` for implemented behavior.
+
 **Version:** 1.0 · **Target:** HackGT 2026 · **Status:** SPECIFICATION
 
 A live visual telemetry dashboard for HackGT judges, mentors, and spectators to inspect the wearable spatial guide's real-time perception, navigation planning, tactile actuator commands, and voice assistant state.
@@ -257,4 +299,3 @@ To enable live judge evaluations without requiring dangerous physical obstacles 
     - Active language badge on HUD.
     - Spoken hazard phrases (from `companion/voice/i18n.py`).
     - Assistant speech synthesis voice and responses.
-

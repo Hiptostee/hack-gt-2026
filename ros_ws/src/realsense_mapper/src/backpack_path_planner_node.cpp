@@ -4,11 +4,13 @@
 #include <cmath>
 #include <cstdint>
 #include <deque>
+#include <iomanip>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <queue>
 #include <regex>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,6 +29,7 @@
 #include "sensor_msgs/msg/image.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "std_msgs/msg/empty.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -50,12 +53,21 @@ public:
     goal_smoothing_alpha_ = declare_parameter<double>("goal_smoothing_alpha", 0.20);
     start_ignore_radius_ = declare_parameter<double>("start_ignore_radius", 0.20);
     wall_closing_radius_ = declare_parameter<double>("wall_closing_radius", 0.12);
+    // A spoken request waits on Gemini for seconds, and its depth frame and TF
+    // must still be buffered when the box arrives. TF's cache defaults to 10 s.
+    depth_buffer_seconds_ = declare_parameter<double>("depth_buffer_seconds", 10.0);
+    voice_max_age_ = declare_parameter<double>("voice_max_age", 8.0);
+    voice_max_depth_ = declare_parameter<double>("voice_max_depth", 6.0);
+    voice_min_valid_fraction_ = declare_parameter<double>("voice_min_valid_fraction", 0.25);
+    arrival_distance_ = declare_parameter<double>("arrival_distance", 1.0);
+    voice_expiry_ = declare_parameter<double>("voice_expiry", 300.0);
 
     path_pub_ = create_publisher<nav_msgs::msg::Path>("/backpack/path", 10);
     goal_pub_ = create_publisher<geometry_msgs::msg::PointStamped>("/backpack/goal", 10);
     path_valid_pub_ = create_publisher<std_msgs::msg::Bool>("/backpack/path_valid", 10);
     image_pub_ = create_publisher<sensor_msgs::msg::Image>(
       "/backpack/planner_image", rclcpp::SensorDataQoS());
+    status_pub_ = create_publisher<std_msgs::msg::String>("/target/status", 10);
 
     map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
       "/rtabmap/map", rclcpp::QoS(1).transient_local().reliable(),
@@ -64,7 +76,12 @@ public:
       "/camera/aligned_depth_to_color/image_raw", rclcpp::SensorDataQoS(),
       [this](sensor_msgs::msg::Image::ConstSharedPtr msg) {
         depth_buffer_.push_back(msg);
-        if (depth_buffer_.size() > 150) {
+        const rclcpp::Time newest(msg->header.stamp);
+        while (depth_buffer_.size() > kMaxDepthFrames ||
+          (depth_buffer_.size() > 1 &&
+          (newest - rclcpp::Time(depth_buffer_.front()->header.stamp)).seconds() >
+          depth_buffer_seconds_))
+        {
           depth_buffer_.pop_front();
         }
       });
@@ -77,6 +94,17 @@ public:
     detection_sub_ = create_subscription<std_msgs::msg::String>(
       "/yolo/black_backpack", 10,
       std::bind(&BackpackPathPlanner::detection_callback, this, _1));
+    target_sub_ = create_subscription<std_msgs::msg::String>(
+      "/target/detection", 10,
+      std::bind(&BackpackPathPlanner::target_callback, this, _1));
+    clear_sub_ = create_subscription<std_msgs::msg::Empty>(
+      "/target/clear", 10,
+      [this](std_msgs::msg::Empty::ConstSharedPtr) {
+        if (source_ == Source::voice) {
+          publish_status("cleared");
+          drop_voice_target();
+        }
+      });
     visual_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       "/visual_odom_valid", rclcpp::SensorDataQoS(),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr) {
@@ -87,7 +115,24 @@ public:
       if (!visual_odometry_fresh()) {
         clear_path();
         publish_path_valid(false);
+        if (source_ == Source::voice && !voice_tracking_lost_) {
+          voice_tracking_lost_ = true;
+          publish_status("tracking_lost");
+        }
         return;
+      }
+      if (source_ == Source::voice) {
+        if (voice_tracking_lost_) {
+          voice_tracking_lost_ = false;
+          publish_status("tracking_restored");
+        }
+        if (std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - voice_started_).count() > voice_expiry_)
+        {
+          publish_status("expired");
+          drop_voice_target();
+          return;
+        }
       }
       // Keep routing from the moving wearer to the last observed backpack,
       // even when the detector no longer has it in the current image.
@@ -97,6 +142,14 @@ public:
       {
         const auto target = target_in_current_map();
         if (target) {
+          if (source_ == Source::voice) {
+            const auto relative = relative_to_camera(*target);
+            if (relative && relative->first <= arrival_distance_) {
+              publish_status("arrived", relative);
+              drop_voice_target();
+              return;
+            }
+          }
           goal_pub_->publish(*target);
           plan_to(*target);
         } else {
@@ -110,7 +163,17 @@ public:
   }
 
 private:
+  enum class Source {backpack, voice};
   struct Box {int x; int y; int width; int height; double confidence;};
+  // Failure is one of the /target/status states when odom is empty.
+  struct Projection
+  {
+    std::optional<geometry_msgs::msg::PointStamped> odom;
+    std::string failure;
+    double depth{0.0};
+    double valid_fraction{0.0};
+  };
+  static constexpr std::size_t kMaxDepthFrames = 600;
   struct OpenNode {double f; double g; int state;};
   struct Greater {bool operator()(const OpenNode & a, const OpenNode & b) const {return a.f > b.f;}};
   static constexpr int kDirections = 8;
@@ -213,16 +276,19 @@ private:
       std::stoll(match[1]) * 1000000000LL + std::stoll(match[2]), RCL_ROS_TIME);
   }
 
-  std::optional<double> median_depth(const Box & box) const
+  std::optional<double> median_depth(const Box & box, double & valid_fraction) const
   {
+    valid_fraction = 0.0;
     if (!depth_ || depth_->data.empty()) {return std::nullopt;}
     const int x0 = std::max(0, box.x + box.width / 3);
     const int x1 = std::min(static_cast<int>(depth_->width), box.x + 2 * box.width / 3);
     const int y0 = std::max(0, box.y + box.height / 3);
     const int y1 = std::min(static_cast<int>(depth_->height), box.y + 2 * box.height / 3);
     std::vector<float> samples;
+    std::size_t visited = 0;
     for (int y = y0; y < y1; y += 2) {
       for (int x = x0; x < x1; x += 2) {
+        ++visited;
         float meters = 0.0F;
         const auto offset = static_cast<std::size_t>(y) * depth_->step;
         if (depth_->encoding == sensor_msgs::image_encodings::TYPE_16UC1) {
@@ -238,6 +304,7 @@ private:
       }
     }
     if (samples.empty()) {return std::nullopt;}
+    valid_fraction = static_cast<double>(samples.size()) / static_cast<double>(visited);
     const auto middle = samples.begin() + samples.size() / 2;
     std::nth_element(samples.begin(), middle, samples.end());
     return *middle;
@@ -261,8 +328,70 @@ private:
     }
   }
 
+  static std::string json_string(const std::string & json, const std::regex & pattern)
+  {
+    std::smatch match;
+    return std::regex_search(json, match, pattern) ? match[1].str() : std::string();
+  }
+
+  // Box pixels plus the image stamp -> a point in odom, using the depth frame
+  // and camera pose from when the image was captured.
+  Projection project(const Box & box, const rclcpp::Time & stamp)
+  {
+    Projection result;
+    if (!visual_odometry_fresh()) {result.failure = "tracking_lost"; return result;}
+    if (!map_) {result.failure = "no_map"; return result;}
+    if (!camera_info_) {result.failure = "no_camera_info"; return result;}
+    double closest_age = std::numeric_limits<double>::infinity();
+    sensor_msgs::msg::Image::ConstSharedPtr closest_depth;
+    for (const auto & candidate : depth_buffer_) {
+      const double age = std::abs((rclcpp::Time(candidate->header.stamp) - stamp).seconds());
+      if (age < closest_age) {
+        closest_age = age;
+        closest_depth = candidate;
+      }
+    }
+    if (!closest_depth || closest_age > 0.07) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 3000,
+        "Detection image has no matching depth frame (nearest %.3f s)", closest_age);
+      result.failure = "no_depth_frame";
+      return result;
+    }
+    depth_ = closest_depth;
+    const auto z = median_depth(box, result.valid_fraction);
+    if (!z) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000, "Detection has no valid depth");
+      result.failure = "no_depth";
+      return result;
+    }
+    result.depth = *z;
+
+    const double u = box.x + box.width * 0.5;
+    const double v = box.y + box.height * 0.5;
+    geometry_msgs::msg::PointStamped camera_point;
+    camera_point.header = depth_->header;
+    camera_point.point.x = (u - camera_info_->k[2]) * *z / camera_info_->k[0];
+    camera_point.point.y = (v - camera_info_->k[5]) * *z / camera_info_->k[4];
+    camera_point.point.z = *z;
+    try {
+      const auto transform = tf_buffer_.lookupTransform(
+        "odom", camera_point.header.frame_id, camera_point.header.stamp,
+        rclcpp::Duration::from_seconds(0.15));
+      geometry_msgs::msg::PointStamped target;
+      tf2::doTransform(camera_point, target, transform);
+      target.header.frame_id = "odom";
+      result.odom = target;
+    } catch (const tf2::TransformException & error) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000, "Cannot transform detection: %s", error.what());
+      result.failure = "no_tf";
+    }
+    return result;
+  }
+
   void detection_callback(const std_msgs::msg::String::ConstSharedPtr message)
   {
+    if (source_ == Source::voice) {return;}
     if (!visual_odometry_fresh()) {
       clear_path();
       publish_path_valid(false);
@@ -272,68 +401,126 @@ private:
       return;
     }
     const auto box = parse_best_box(message->data);
-    if (!box || !map_ || !camera_info_ || depth_buffer_.empty()) {return;}
     const auto stamp = detection_stamp(message->data);
-    if (!stamp) {return;}
-    double closest_age = std::numeric_limits<double>::infinity();
-    sensor_msgs::msg::Image::ConstSharedPtr closest_depth;
-    for (const auto & candidate : depth_buffer_) {
-      const double age = std::abs((rclcpp::Time(candidate->header.stamp) - *stamp).seconds());
-      if (age < closest_age) {
-        closest_age = age;
-        closest_depth = candidate;
-      }
+    if (!box || !stamp) {return;}
+    const auto projection = project(*box, *stamp);
+    if (!projection.odom) {return;}
+
+    const auto & target = *projection.odom;
+    if (!target_odom_ ||
+      std::hypot(target.point.x - target_odom_->point.x,
+      target.point.y - target_odom_->point.y) > 1.0)
+    {
+      target_odom_ = target;
+    } else {
+      target_odom_->header = target.header;
+      target_odom_->point.x += goal_smoothing_alpha_ *
+        (target.point.x - target_odom_->point.x);
+      target_odom_->point.y += goal_smoothing_alpha_ *
+        (target.point.y - target_odom_->point.y);
+      target_odom_->point.z += goal_smoothing_alpha_ *
+        (target.point.z - target_odom_->point.z);
     }
-    if (closest_age > 0.07) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 3000,
-        "Backpack image has no matching depth frame (nearest %.3f s)", closest_age);
+    const auto current_target = target_in_current_map();
+    if (current_target) {
+      goal_pub_->publish(*current_target);
+      plan_to(*current_target);
+    }
+  }
+
+  // A spoken request replaces whatever was being guided, even if it fails, and
+  // always answers on /target/status: the wearer must never be left in silence.
+  void target_callback(const std_msgs::msg::String::ConstSharedPtr message)
+  {
+    static const std::regex request_pattern(R"re("request_id":"([A-Za-z0-9_-]{1,40})")re");
+    static const std::regex label_pattern(R"re("label":"([^"\\]{0,40})")re");
+    source_ = Source::voice;
+    voice_request_id_ = json_string(message->data, request_pattern);
+    voice_label_ = json_string(message->data, label_pattern);
+    voice_started_ = std::chrono::steady_clock::now();
+    voice_tracking_lost_ = false;
+    target_odom_.reset();
+    clear_path();
+    publish_path_valid(false);
+
+    const auto box = parse_best_box(message->data);
+    const auto stamp = detection_stamp(message->data);
+    if (!box || !stamp) {reject_voice_target("invalid"); return;}
+    if ((now() - *stamp).seconds() > voice_max_age_) {reject_voice_target("stale"); return;}
+    const auto projection = project(*box, *stamp);
+    if (!projection.odom) {reject_voice_target(projection.failure); return;}
+    if (projection.valid_fraction < voice_min_valid_fraction_) {
+      reject_voice_target("no_depth");
       return;
     }
-    depth_ = closest_depth;
-    const auto z = median_depth(*box);
-    if (!z) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000, "Backpack detected but has no valid depth");
+    if (projection.depth > voice_max_depth_) {reject_voice_target("too_far"); return;}
+
+    target_odom_ = projection.odom;
+    const auto target = target_in_current_map();
+    std::optional<std::pair<double, double>> relative;
+    if (target) {relative = relative_to_camera(*target);}
+    if (!relative) {reject_voice_target("no_tf"); return;}
+    if (relative->first <= standoff_distance_) {
+      publish_status("near", relative);
+      drop_voice_target();
       return;
     }
+    goal_pub_->publish(*target);
+    const auto result = plan_to(*target);
+    if (result != "ok") {reject_voice_target(result); return;}
+    publish_status("ok", relative);
+  }
 
-    const double u = box->x + box->width * 0.5;
-    const double v = box->y + box->height * 0.5;
-    geometry_msgs::msg::PointStamped camera_point;
-    camera_point.header = depth_->header;
-    camera_point.point.x = (u - camera_info_->k[2]) * *z / camera_info_->k[0];
-    camera_point.point.y = (v - camera_info_->k[5]) * *z / camera_info_->k[4];
-    camera_point.point.z = *z;
-
+  // (distance m, bearing deg, positive = left) from the current camera_link pose.
+  std::optional<std::pair<double, double>> relative_to_camera(
+    const geometry_msgs::msg::PointStamped & target)
+  {
+    constexpr double kDegrees = 180.0 / 3.14159265358979323846;
     try {
       const auto transform = tf_buffer_.lookupTransform(
-        "odom", camera_point.header.frame_id, camera_point.header.stamp,
-        rclcpp::Duration::from_seconds(0.15));
-      geometry_msgs::msg::PointStamped target;
-      tf2::doTransform(camera_point, target, transform);
-      target.header.frame_id = "odom";
-      if (!target_odom_ ||
-        std::hypot(target.point.x - target_odom_->point.x,
-        target.point.y - target_odom_->point.y) > 1.0)
-      {
-        target_odom_ = target;
-      } else {
-        target_odom_->header = target.header;
-        target_odom_->point.x += goal_smoothing_alpha_ *
-          (target.point.x - target_odom_->point.x);
-        target_odom_->point.y += goal_smoothing_alpha_ *
-          (target.point.y - target_odom_->point.y);
-        target_odom_->point.z += goal_smoothing_alpha_ *
-          (target.point.z - target_odom_->point.z);
-      }
-      const auto current_target = target_in_current_map();
-      if (current_target) {
-        goal_pub_->publish(*current_target);
-        plan_to(*current_target);
-      }
-    } catch (const tf2::TransformException & error) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000, "Cannot transform backpack: %s", error.what());
+        "camera_link", target.header.frame_id, tf2::TimePointZero);
+      geometry_msgs::msg::PointStamped local;
+      tf2::doTransform(target, local, transform);
+      return std::make_pair(
+        std::hypot(local.point.x, local.point.y),
+        std::atan2(local.point.y, local.point.x) * kDegrees);
+    } catch (const tf2::TransformException &) {
+      return std::nullopt;
     }
+  }
+
+  void publish_status(
+    const std::string & state,
+    const std::optional<std::pair<double, double>> & relative = std::nullopt)
+  {
+    std::ostringstream json;
+    json << "{\"request_id\":\"" << voice_request_id_ << "\",\"state\":\"" << state << '"';
+    if (relative) {
+      json << std::fixed << std::setprecision(2) << ",\"distance_m\":" << relative->first
+           << ",\"bearing_deg\":" << relative->second;
+    }
+    json << '}';
+    std_msgs::msg::String message;
+    message.data = json.str();
+    status_pub_->publish(message);
+    RCLCPP_INFO(get_logger(), "Voice target '%s': %s", voice_label_.c_str(), state.c_str());
+  }
+
+  void reject_voice_target(const std::string & state)
+  {
+    publish_status(state);
+    drop_voice_target();
+  }
+
+  // Hands the planner back to the backpack detector.
+  void drop_voice_target()
+  {
+    source_ = Source::backpack;
+    voice_request_id_.clear();
+    voice_label_.clear();
+    target_odom_.reset();
+    clear_path();
+    publish_path_valid(false);
   }
 
   bool world_to_cell(double wx, double wy, int & x, int & y) const
@@ -460,7 +647,8 @@ private:
     return std::nullopt;
   }
 
-  void plan_to(const geometry_msgs::msg::PointStamped & detected_target)
+  // Returns "ok" or the /target/status failure state.
+  std::string plan_to(const geometry_msgs::msg::PointStamped & detected_target)
   {
     // Limit unsuccessful A* retries too. A target outside the current map
     // would otherwise trigger a full search on every 50 ms watchdog tick.
@@ -469,7 +657,7 @@ private:
     try {
       camera_tf = tf_buffer_.lookupTransform(
         map_->header.frame_id, "camera_link", tf2::TimePointZero);
-    } catch (const tf2::TransformException &) {return;}
+    } catch (const tf2::TransformException &) {return "no_tf";}
 
     const double sxw = camera_tf.transform.translation.x;
     const double syw = camera_tf.transform.translation.y;
@@ -483,7 +671,9 @@ private:
     }
 
     int sx, sy, gx, gy;
-    if (!world_to_cell(sxw, syw, sx, sy) || !world_to_cell(gxw, gyw, gx, gy)) {return;}
+    if (!world_to_cell(sxw, syw, sx, sy) || !world_to_cell(gxw, gyw, gx, gy)) {
+      return "outside_map";
+    }
     planning_start_x_ = sx;
     planning_start_y_ = sy;
     have_planning_start_ = true;
@@ -491,7 +681,7 @@ private:
     const auto goal = nearest_free(gx, gy);
     if (!start || !goal) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000, "No free map cell near start or backpack");
-      return;
+      return "no_free_cell";
     }
 
     const int width = static_cast<int>(map_->info.width);
@@ -542,7 +732,7 @@ private:
     }
     if (final_state < 0) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000, "No known-free path to backpack");
-      return;
+      return "no_path";
     }
 
     std::vector<std::pair<int, int>> cells_path;
@@ -582,6 +772,7 @@ private:
     current_path_ = path;
     path_pub_->publish(path);
     publish_path_valid(true);
+    return "ok";
   }
 
   void image_callback(const sensor_msgs::msg::Image::ConstSharedPtr message)
@@ -645,9 +836,38 @@ private:
       cv::putText(output, "A* route", cv::Point(18, output.rows - 22),
         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 60, 30), 2, cv::LINE_AA);
     }
+    if (tracking_valid && camera_info_ && source_ == Source::voice) {
+      draw_voice_target(output, *message);
+    }
     sensor_msgs::msg::Image published = *message;
     published.data.assign(output.datastart, output.dataend);
     image_pub_->publish(std::move(published));
+  }
+
+  // Marks the remembered 3D goal, not Gemini's box: the box belongs to a frame
+  // several seconds old.
+  void draw_voice_target(cv::Mat & output, const sensor_msgs::msg::Image & image)
+  {
+    const auto target = target_in_current_map();
+    if (!target) {return;}
+    geometry_msgs::msg::PointStamped camera_point;
+    try {
+      const auto transform = tf_buffer_.lookupTransform(
+        image.header.frame_id, target->header.frame_id, image.header.stamp,
+        rclcpp::Duration::from_seconds(0.1));
+      tf2::doTransform(*target, camera_point, transform);
+    } catch (const tf2::TransformException &) {return;}
+    if (camera_point.point.z <= 0.1) {return;}
+    const cv::Point pixel(
+      static_cast<int>(std::lround(
+        camera_info_->k[0] * camera_point.point.x / camera_point.point.z + camera_info_->k[2])),
+      static_cast<int>(std::lround(
+        camera_info_->k[4] * camera_point.point.y / camera_point.point.z + camera_info_->k[5])));
+    if (!cv::Rect(0, 0, output.cols, output.rows).contains(pixel)) {return;}
+    const cv::Scalar green(40, 220, 90);
+    cv::circle(output, pixel, 12, green, 3, cv::LINE_AA);
+    cv::putText(output, voice_label_, pixel + cv::Point(16, -10),
+      cv::FONT_HERSHEY_SIMPLEX, 0.7, green, 2, cv::LINE_AA);
   }
 
   double turn_penalty_;
@@ -661,6 +881,17 @@ private:
   double goal_smoothing_alpha_;
   double start_ignore_radius_;
   double wall_closing_radius_;
+  double depth_buffer_seconds_;
+  double voice_max_age_;
+  double voice_max_depth_;
+  double voice_min_valid_fraction_;
+  double arrival_distance_;
+  double voice_expiry_;
+  Source source_{Source::backpack};
+  std::string voice_request_id_;
+  std::string voice_label_;
+  std::chrono::steady_clock::time_point voice_started_{};
+  bool voice_tracking_lost_{false};
   int planning_start_x_{0};
   int planning_start_y_{0};
   bool have_planning_start_{false};
@@ -681,6 +912,9 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr goal_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr path_valid_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr target_sub_;
+  rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr clear_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;

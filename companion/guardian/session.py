@@ -135,8 +135,8 @@ class GuardianController:
         with self.lock:
             state = self.state
             sms_state = getattr(self.sms, "state", "idle") if self.sms else "idle"
-            last_obs = getattr(self.session, "last_observation", None) if self.session else None
-            trail = getattr(self.session, "trail", []) if self.session else []
+            last_obs = getattr(self.session, "landmark", None) if self.session else None
+            trail = self.session.trail() if self.session else []
             is_speaking = False
             if self.voice and hasattr(self.voice, "is_playing"):
                 try:

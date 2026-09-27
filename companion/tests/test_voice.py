@@ -298,6 +298,43 @@ class DeviceActions(unittest.TestCase):
         guidance.stop.assert_called_once()
         self.assertEqual(speech.said[-1][0], "Guidance stopped.")
 
+    def target_result(self, box):
+        result = self.result("navigate_target")
+        result.update(answer="I don't see a water fountain.", target="water fountain", box_2d=box)
+        return result
+
+    def test_navigate_target_sends_the_box_with_the_frame_stamp(self):
+        camera = FakeCamera()
+        camera.frame_info = lambda jpeg: ({"stamp": "12.000000003", "width": 640, "height": 480}
+                                          if jpeg is camera.image else None)
+        companion, _, speech = build(camera=camera)
+        companion.session.set_image(camera.image, None)
+        companion.guidance = mock.Mock()
+        companion.guidance.go_to.return_value = "I think I see the water fountain."
+        companion._act(self.target_result([1, 2, 3, 4]), "", companion.generation)
+        companion.guidance.go_to.assert_called_once_with(
+            "water fountain", [1, 2, 3, 4], "12.000000003", 640, 480)
+        self.assertEqual(speech.said[-1], ("I think I see the water fountain.", True))
+
+    def test_navigate_target_without_a_box_speaks_geminis_answer(self):
+        companion, _, speech = build()
+        companion.guidance = mock.Mock()
+        companion._act(self.target_result(None), "", companion.generation)
+        companion.guidance.go_to.assert_not_called()
+        self.assertEqual(speech.said[-1], ("I don't see a water fountain.", False))
+
+    def test_navigate_target_refuses_a_frame_without_a_ros_stamp(self):
+        companion, _, speech = build()
+        companion.guidance = mock.Mock()
+        companion._act(self.target_result([1, 2, 3, 4]), "", companion.generation)
+        companion.guidance.go_to.assert_not_called()
+        self.assertEqual(speech.said[-1][0], "Guidance needs the live camera.")
+
+    def test_navigate_target_without_ros_says_unavailable(self):
+        companion, _, speech = build()
+        companion._act(self.target_result([1, 2, 3, 4]), "", companion.generation)
+        self.assertEqual(speech.said[-1][0], "Guidance is unavailable here.")
+
     def test_stop_speaks_nothing(self):
         companion, _audio, speech = build()
         companion._act(self.result("stop"), "", companion.generation)
@@ -380,6 +417,33 @@ class GeminiRequest(unittest.TestCase):
         _, result = self.send(reply={"transcript": "", "answer": "Fine.", "landmark": "",
                                      "device_action": "self_destruct"})
         self.assertEqual(result["device_action"], "none")
+
+    def navigate(self, box, action="navigate_target", target="water fountain"):
+        _, result = self.send(reply={"transcript": "", "answer": "Okay.", "landmark": "",
+                                     "device_action": action, "target": target,
+                                     "box_2d": box})
+        return result
+
+    def test_navigate_target_keeps_a_valid_box(self):
+        result = self.navigate([100, 200, 300, 400])
+        self.assertEqual(result["box_2d"], [100, 200, 300, 400])
+        self.assertEqual(result["target"], "water fountain")
+
+    def test_malformed_boxes_become_none(self):
+        for box in ([1, 2, 3], [300, 0, 100, 10], [0, 500, 10, 500], [0, 0, 10, 1001],
+                    [0.5, 0, 10, 10], [True, 0, 10, 10], "0,0,10,10", None):
+            self.assertIsNone(self.navigate(box)["box_2d"], box)
+
+    def test_box_and_target_are_dropped_for_other_actions(self):
+        result = self.navigate([100, 200, 300, 400], action="none")
+        self.assertIsNone(result["box_2d"])
+        self.assertEqual(result["target"], "")
+
+    def test_target_label_cannot_break_the_planner_message(self):
+        result = self.navigate([1, 2, 3, 4], target='the "exit" \\ sign' + "x" * 60)
+        self.assertNotIn('"', result["target"])
+        self.assertNotIn("\\", result["target"])
+        self.assertLessEqual(len(result["target"]), 40)
 
     def test_non_json_response_reports_http_metadata(self):
         class BadResponse(io.BytesIO):

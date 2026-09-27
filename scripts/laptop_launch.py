@@ -1,10 +1,11 @@
-"""Start the Pi tunnel, local Gemini voice page, and Docker RViz viewer."""
+"""Start Beacon on the laptop; optional Pi tunnel and Docker RViz viewer."""
 
 import argparse
 import getpass
 import os
 from pathlib import Path
 import socket
+import shlex
 import subprocess
 import sys
 import time
@@ -14,6 +15,38 @@ import webbrowser
 
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_env(path, env):
+    """Read literal KEY=value entries without executing shell code."""
+    if not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:]
+        key, sep, raw = line.partition("=")
+        key = key.strip()
+        if not sep or not key.replace("_", "").isalnum():
+            raise ValueError("Invalid .env entry; use KEY=value")
+        value = shlex.split(raw, comments=True)
+        if len(value) > 1:
+            raise ValueError("Quote values containing spaces in .env")
+        env.setdefault(key, value[0] if value else "")
+
+
+def parser_for_demo():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pi-ip", default=os.environ.get("PI_LAN_IP", "100.73.168.115"))
+    parser.add_argument("--pi-user", default=os.environ.get("PI_SSH_USER", "raspi"))
+    parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
+    parser.add_argument("--viewer", action="store_true", help="Also launch Docker RViz (optional)")
+    parser.add_argument("--standalone", action="store_true", help="Laptop webcam rehearsal, without Pi/depth routing")
+    parser.add_argument("--image", help="Static rehearsal JPEG; requires --standalone")
+    parser.add_argument("--no-open", action="store_true")
+    return parser
 
 
 def port_open(port):
@@ -51,15 +84,22 @@ def stop_process(process):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pi-ip", default=os.environ.get("PI_LAN_IP", "100.73.168.115"))
-    parser.add_argument("--pi-user", default=os.environ.get("PI_SSH_USER", "raspi"))
+    parser = parser_for_demo()
     args = parser.parse_args()
+    if args.image and not args.standalone:
+        parser.error("--image requires --standalone; live Pi failures never use an old image")
+    if args.viewer and args.standalone:
+        parser.error("--viewer needs the Pi connection")
 
-    if port_open(8080) or port_open(8081):
+    if port_open(8080) or (not args.standalone and port_open(8081)):
         parser.error("Port 8080 or 8081 is already in use. Stop the old web server or SSH tunnel first.")
 
     env = os.environ.copy()
+    try:
+        load_env(args.env_file, env)
+    except ValueError as error:
+        parser.error(str(error))
+    env["GUARDIAN_SMS"] = "fake"
     if not env.get("GEMINI_API_KEY"):
         if not sys.stdin.isatty():
             parser.error("Set GEMINI_API_KEY before starting the laptop launcher.")
@@ -75,18 +115,21 @@ def main():
     tunnel = voice = viewer = None
     compose = ["docker", "compose", "--profile", "viewer"]
     try:
-        print(f"Opening SSH bridge to {args.pi_user}@{args.pi_ip}...", flush=True)
-        tunnel = subprocess.Popen([
-            "ssh", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15",
-            "-L", "8081:127.0.0.1:8081", f"{args.pi_user}@{args.pi_ip}",
-        ], cwd=ROOT)
-        wait_for_bridge(tunnel)
+        if not args.standalone:
+            print(f"Opening SSH bridge to {args.pi_user}@{args.pi_ip}...", flush=True)
+            tunnel = subprocess.Popen([
+                "ssh", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15",
+                "-L", "8081:127.0.0.1:8081", f"{args.pi_user}@{args.pi_ip}",
+            ], cwd=ROOT)
+            wait_for_bridge(tunnel)
 
         print("Starting local Gemini voice page...", flush=True)
-        voice = subprocess.Popen([
-            sys.executable, "-m", "companion.voice.web_test", "--pi-url",
-            "http://127.0.0.1:8081", "--no-open",
-        ], cwd=ROOT, env=env)
+        voice_command = [sys.executable, "-m", "companion.voice.web_test", "--no-open"]
+        if not args.standalone:
+            voice_command += ["--pi-url", "http://127.0.0.1:8081"]
+        if args.image:
+            voice_command += ["--image", args.image]
+        voice = subprocess.Popen(voice_command, cwd=ROOT, env=env)
         deadline = time.monotonic() + 15
         while not port_open(8080):
             if voice.poll() is not None:
@@ -95,13 +138,15 @@ def main():
                 raise RuntimeError("The Gemini web service did not open port 8080.")
             time.sleep(0.2)
 
-        print("Starting Docker RViz viewer...", flush=True)
-        viewer = subprocess.Popen(compose + ["up", "rviz-viewer", "--build"], cwd=ROOT, env=viewer_env)
-        webbrowser.open("http://localhost:8080")
-        print("Voice: http://localhost:8080 | RViz: localhost:5901 | Ctrl-C stops all three", flush=True)
+        if args.viewer:
+            print("Starting Docker RViz viewer...", flush=True)
+            viewer = subprocess.Popen(compose + ["up", "rviz-viewer", "--build"], cwd=ROOT, env=viewer_env)
+        if not args.no_open:
+            webbrowser.open("http://localhost:8080/")
+        print("Beacon: http://localhost:8080/ | Ctrl-C stops laptop services", flush=True)
         while True:
             for label, process in (("SSH tunnel", tunnel), ("voice page", voice), ("RViz viewer", viewer)):
-                if process.poll() is not None:
+                if process is not None and process.poll() is not None:
                     raise RuntimeError(f"{label} exited with status {process.returncode}.")
             time.sleep(0.5)
     except KeyboardInterrupt:

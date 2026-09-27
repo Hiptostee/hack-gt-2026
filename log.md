@@ -6,6 +6,102 @@ are the things that get lost.
 
 ---
 
+
+## 2026-09-27 — Unified dashboard and Find → inspect → Guide
+
+The user preferred the original dashboard's appearance, so it is now the single
+operator/judging page at `/` and `/demo`. Preserved camera/radar switching,
+telemetry, hand visuals, language controls, simulator and console. Added the
+object workflow, typed questions, explicit microphone enable, hold-to-talk,
+Stop/Repeat/Status, Guardian controls and observation history within that design.
+The launcher opens `/`; the separate demo HTML is retired.
+
+Find never calls guidance: it shows the candidate box and creates a server-owned
+selection valid for 60 seconds. Guide consumes that selection, captures a fresh
+frame and identifies the label again before routing with that frame's exact
+timestamp/dimensions. No-match cannot reuse the previous box. Stop, a new Find,
+expiry and Guardian entry clear selection. Use one distinct object: identical
+objects are not tracked across frames. Existing hazard permission gates remain.
+
+Shared runtime/browser generation checks suppress cancelled replies, images and
+audio. Browser/native Guardian mic ownership is preserved; live Guardian state
+also appears in the standalone dashboard. The installed ROS package now includes
+the external dashboard control script. Feature specs were updated before code.
+
+Validation: 210 Python tests and 7 existing Node help tests pass. Dashboard inline
+and external JavaScript parse; `git diff --check` is clean. Chrome verified Find,
+highlighted candidate, Guide, Stop and radar switching against simulated local
+model/planner responses. This is UI/integration evidence, not a live D415 route or
+microphone/Guardian rehearsal. The Pi build and real hardware checks in the demo
+runbook remain outstanding. No commit or push was performed.
+
+---
+
+## 2026-09-27 — Beacon laptop demo integration
+
+User selected the laptop's built-in microphone and speakers because there is no
+wearable button or dedicated mic. Narrowed judging to a stationary D415 scene,
+one visible chair target, and Guardian orientation using recent observations.
+Plan/runbook: `docs/Beacon-Laptop-Demo.md`; feature contract written before code
+in `companion/demo/specs.md`.
+
+Combined `feature/navigate-target` (`b04eb8d`) into the `feature/guardian`
+(`3e24163`) working tree, retaining Guardian, i18n, hazard permission, dashboard
+and the preexisting dashboard concurrency/camera-toggle fixes. No Git merge,
+commit or push was performed; the navigate worktree is unchanged. The separate
+tactile branch is not included and no ESP32 is required for this judging sequence.
+
+The `/demo` page supplies laptop hold-to-talk, typed questions, camera and target
+box, stop/repeat/status, and Guardian controls. The existing Session is shared
+with Guardian. Native Guardian audio and browser scene playback are mutually
+exclusive in this operator flow. Demo SMS always constructs FakeSender, even
+when Twilio credentials exist. The launcher loads literal `.env` settings and
+makes Docker optional (`--viewer`); standalone webcam/static rehearsal is explicit.
+
+Named-target schema, frame stamp/dimensions, HTTP target commands/events and the
+ROS target planner are integrated. Missing hazard/audio permission produces an
+explicit stationary route preview and no movement cues. Stop invalidates cloud
+responses and cancels pending target/backpack handoffs. Browser heartbeat loss
+stops the session. Guardian entry stops navigation on laptop and on-device paths.
+Fixed rotation codes 3/4, Guardian's Session.trail snapshot bug, and hardcoded
+latency/FPS/safety-pass claims. The illustrative radar is labelled as such.
+
+Validation: 204 Python tests pass; 7 existing Node help tests pass; Python and both
+browser scripts pass syntax checks; `git diff --check` is clean. Chrome rendered
+the page and confirmed typed missing-key feedback and local status playback
+indication with credentials disabled. Local preflight confirms all required
+credentials, imports, offline speech and supported laptop audio formats.
+
+Live cloud readiness also passed with synthetic text only: Gemini structured
+response, ElevenLabs speech bytes (not played), and Guardian signed URL issuance.
+No microphone samples or real messages were sent. Full spoken Guardian rehearsal
+is pending. ROS is not installed on the laptop, and the existing Docker ROS base
+image lacks OpenCV headers, so C++ build/synthetic ROS target smoke and actual
+D415 route testing must run on the Pi. Hardware coverage remains unverified and
+calibration gates were not weakened. The runbook records exact launch/build steps
+and the remaining rehearsal checks without claiming hardware success.
+
+---
+
+## 2026-09-27 — Beacon project showcase and judging material
+
+The user selected **Beacon** as the project name and hackathon judges as the
+presentation audience. Added `docs/Beacon-Project-Showcase.md` and an editable
+Word version, `docs/Beacon-Project-Showcase.docx`.
+
+The sourcebook includes Devpost story copy, project/architecture explanations,
+Gemini and ElevenLabs integration material, a seven-slide outline, a three-minute
+pitch, a demonstration sequence, judge Q&A, and repository evidence/status notes.
+It distinguishes current software, separate tactile/named-target branches,
+simulated dashboard elements and outstanding wearable validation. Dashboard
+timing constants and illustrative paths are not presented as measured results.
+
+Documentation only. No application behavior, branch integration, hardware
+configuration or published submission changed. Historical test evidence is
+identified as historical; no new wearable or performance testing is implied.
+
+---
+
 ## 2026-09-26 23:05 — Judge Dashboard Enhancements: Simulator, Vitals, Costmap Radar, and i18n Switcher (§12a)
 
 Added interactive judge controls and spatial visualization tools to `companion/dashboard/specs.md`, `companion/voice/pi_bridge.py`, and `companion/voice/web_test.py`:
@@ -26,6 +122,7 @@ Added interactive judge controls and spatial visualization tools to `companion/d
   - Added `[🇺🇸 EN | 🇰🇷 KO | 🇨🇳 ZH | 🇯🇵 JA | 🇪🇸 ES]` language switcher in header.
   - Added `POST /debug/language` dynamically switching `DEVICE_LANG`, active UI badges, localized simulated hazard phrases, and companion voice synthesis.
 - **Unit test suite:** Extended `companion/tests/test_dashboard.py` to 11 tests covering simulation state, vitals serialization, language switching, and HTTP endpoints. All 11 tests pass.
+- **Concurrency & Responsiveness Fix:** Upgraded `companion/voice/web_test.py` from `HTTPServer` to `ThreadingHTTPServer` to eliminate single-threaded socket queue blocking; debounced telemetry polling loop (`isPolling` guard); added `Cache-Control: no-store` header; and prevented repeated `getUserMedia` stream acquisition when switching between camera and 2D radar.
 
 ---
 

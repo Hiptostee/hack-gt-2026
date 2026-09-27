@@ -159,7 +159,7 @@ class TestBridgeDebugState(unittest.TestCase):
         client = RemotePi("http://127.0.0.1:8081")
         fake_state = {"camera": {"status": "Ready"}, "guidance": {"active": True}}
 
-        with patch.object(client, "_request", return_value=json.dumps(fake_state).encode()):
+        with patch.object(client, "_request", return_value=(json.dumps(fake_state).encode(), {})):
             debug = client.debug_state()
             self.assertEqual(debug["camera"]["status"], "Ready")
             guidance = client.guidance_state()
@@ -176,6 +176,7 @@ class TestWebTestLocalDebugState(unittest.TestCase):
         fake_server.guidance = FakeGuidance(active=False)
         fake_server.hazard_state = None
         fake_server.guardian = None
+        fake_server.demo = None
         fake_server.simulation = {}
 
         handler = MagicMock()
@@ -187,6 +188,11 @@ class TestWebTestLocalDebugState(unittest.TestCase):
         self.assertFalse(state["guidance"]["active"])
         self.assertFalse(state["hazard"]["available"])
         self.assertEqual(state["guardian"]["state"], "idle")
+
+        fake_server.demo = MagicMock()
+        fake_server.demo.snapshot.return_value = {"guardian": {"state": "active"}}
+        state = WebHandler._local_debug_state(handler)
+        self.assertEqual(state["guardian"]["state"], "active")
 
 
 class TestSimulationAndLanguage(unittest.TestCase):
@@ -231,8 +237,8 @@ class TestSimulationAndLanguage(unittest.TestCase):
         state = get_debug_state(server)
         self.assertEqual(state["device_lang"], "ko")
         self.assertIn("vitals", state)
-        self.assertEqual(state["vitals"]["depth_fps"], 30)
-        self.assertTrue(state["vitals"]["safety_budget_pass"])
+        self.assertIsNone(state["vitals"]["depth_fps"])
+        self.assertIsNone(state["vitals"]["safety_budget_pass"])
 
     def test_handler_simulation_and_language_post(self):
         from companion.voice.pi_bridge import Handler as PiHandler
@@ -266,5 +272,3 @@ class TestSimulationAndLanguage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

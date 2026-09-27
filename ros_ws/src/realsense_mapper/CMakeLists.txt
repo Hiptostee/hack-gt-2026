@@ -62,6 +62,6 @@ install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../../companion/
   DESTINATION share/${PROJECT_NAME}/companion
-  FILES_MATCHING PATTERN "*.py" PATTERN "tests" EXCLUDE)
+  FILES_MATCHING PATTERN "*.py" PATTERN "*.html" PATTERN "*.js" PATTERN "tests" EXCLUDE)
 
 ament_package()

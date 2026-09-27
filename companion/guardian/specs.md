@@ -1,5 +1,17 @@
 # Guardian Voice — Specification
 
+## Laptop demo adapter (2026-09-27)
+
+The existing controller also runs from `companion/demo/runtime.py`. Laptop browser
+controls call open/press/release/close; native laptop audio uses `GuardianAudio`.
+The browser releases its microphone while Guardian owns it. Entry stops guidance
+on both the laptop and on-device paths. Scene observations share the same
+`Session`; `snapshot()` calls `Session.trail()` rather than treating it as a list.
+The laptop demo always constructs `FakeSender`; Twilio environment settings do
+not enable real texting there. A missing browser heartbeat ends the session.
+See [../demo/specs.md](../demo/specs.md) for scope and acceptance.
+
+
 Conversational assistance mode for the wearable spatial guide, powered by
 ElevenLabs Agents (Conversational AI). For moments when the user is
 disoriented and wants a calm, adaptive voice that can check status, describe 

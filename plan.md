@@ -1,5 +1,36 @@
 # Wearable Spatial Guide — Implementation Plan
 
+## Current integration — 2026-09-27
+
+The current `feature/guardian` working tree combines the named-target work from
+`feature/navigate-target` (`b04eb8d`) with Guardian (`3e24163`). This is a file-level
+integration; no merge commit or push has been made. The branch snapshots below
+are historical and are superseded by this section for laptop demo usage.
+
+The committed scope decision is one stationary D415 scene, one named chair and
+Guardian orientation help. Laptop microphone/speakers and browser controls
+replace the missing dedicated microphone/button; typed scene questions provide
+fallback. The Pi remains the camera/depth/planner host. The original dashboard at
+`/` now includes the demo controls; `/demo` opens the same page. Find highlights
+the candidate without routing; after inspection, Guide captures a fresh frame and
+identifies the object again before the Pi planner receives it. The selection
+expires after 60 seconds and is cleared by Stop, a new Find or Guardian entry.
+Use one distinct target; identity across similar objects is not tracked. The page
+shares observation memory across scene questions and Guardian. Stop invalidates cloud
+replies, Guardian stops navigation, and browser heartbeat loss stops the session.
+
+Default hazard calibration remains incomplete. A routed target can be presented
+as a stationary preview, but physical direction permission is not fabricated.
+ESP32 hardware is not required; the separate tactile branch is outside this
+integration. Demo SMS is simulated. Dashboard timing constants were removed.
+
+Software acceptance: 210 Python tests and 7 Node tests pass; the dashboard's inline
+and external scripts parse. Chrome verified Find, highlighted candidate, Guide,
+Stop and the radar switch using simulated model/planner responses. Pi build, live D415 routing and
+full spoken Guardian rehearsal remain required. See the executable setup and
+judging sequence in [docs/Beacon-Laptop-Demo.md](docs/Beacon-Laptop-Demo.md).
+
+
 **Version:** 1.4 · **Updated:** 2026-09-26 · **Event:** HackGT 2026
 
 A wearable spatial guide for blind and low-vision people, built as a complement

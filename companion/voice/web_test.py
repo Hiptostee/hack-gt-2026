@@ -3,9 +3,9 @@
 Run:
     python3 -m companion.voice.web_test --image scene.jpeg
 
-Opens http://localhost:8080. The page has a push-to-talk button that behaves
-like the physical button on the Pi, plays audio through both the browser and the
-host computer's speakers (Mac/Pi), and shows live debug diagnostics.
+Opens http://localhost:8080/ for the unified dashboard, object finder and Guardian.
+Scene answers play in the browser; Guardian uses the laptop audio owner.
+/demo is an alias for the same dashboard.
 """
 import argparse
 import base64
@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 import webbrowser
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -86,7 +86,13 @@ def play_host_audio(audio_bytes=None, text="", speed=1.15):
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        if self.path in ("/demo", "/demo/"):
+            return self._send(PAGE, "text/html; charset=utf-8")
+        elif self.path == "/dashboard-controls.js":
+            return self._send((Path(__file__).parent.parent / "dashboard" / "controls.js").read_text(), "text/javascript; charset=utf-8")
+        elif self.path == "/demo/state":
+            return self._json(self.server.demo.snapshot(touch=True))
+        elif self.path in ("/", "/index.html"):
             self._send(PAGE, "text/html; charset=utf-8")
         elif self.path == "/fallback-image":
             if self.server.fallback_image:
@@ -99,6 +105,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(image, "image/jpeg")
             except AppError:
                 self.send_error(503, "No recent Pi camera frame")
+        elif self.path.startswith("/guidance/events?") and self.server.guidance:
+            try:
+                since = int(self.path.split("since=", 1)[1].split("&")[0])
+            except (IndexError, ValueError):
+                since = 0
+            self._json({"events": self.server.guidance.events_since(since)})
         elif self.path == "/status":
             self._json({
                 "gemini_model": self.server.gemini.model,
@@ -108,6 +120,7 @@ class Handler(BaseHTTPRequestHandler):
                 "el_key": bool(self.server.el_key),
                 "el_model": self.server.el_model,
                 "ros_camera": bool(self.server.ros_camera),
+                "guidance": bool(self.server.guidance),
                 "camera_status": (self.server.ros_camera.status()
                                   if self.server.ros_camera else "Not connected"),
                 "fallback_image": bool(self.server.fallback_image),
@@ -118,6 +131,8 @@ class Handler(BaseHTTPRequestHandler):
             if hasattr(self.server, "ros_camera") and hasattr(self.server.ros_camera, "debug_state"):
                 remote_state = self.server.ros_camera.debug_state()
                 if remote_state:
+                    if getattr(self.server, "demo", None):
+                        remote_state["guardian"] = self.server.demo.snapshot()["guardian"]
                     self._json(remote_state)
                     return
             self._json(self._local_debug_state())
@@ -157,7 +172,7 @@ class Handler(BaseHTTPRequestHandler):
             "distance_m": None,
             "phrase": None,
             "sensor_health": "ok" if hasattr(self.server, "hazard_state") else "unknown",
-            "age_s": 0.05,
+            "age_s": None,
         }
         if hasattr(self.server, "hazard_state") and self.server.hazard_state and hasattr(self.server.hazard_state, "snapshot"):
             try:
@@ -178,13 +193,16 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+        if getattr(self.server, "demo", None):
+            guardian_data = self.server.demo.snapshot()["guardian"]
+
         vitals = {
-            "depth_fps": 30,
-            "depth_latency_ms": 33,
-            "hazard_loop_ms": 16,
-            "planner_loop_ms": 42,
-            "safety_budget_ms": 91,
-            "safety_budget_pass": True,
+            "depth_fps": None,
+            "depth_latency_ms": None,
+            "hazard_loop_ms": None,
+            "planner_loop_ms": None,
+            "safety_budget_ms": None,
+            "safety_budget_pass": None,
         }
         sim = getattr(self.server, "simulation", None)
         if not isinstance(sim, dict):
@@ -217,7 +235,7 @@ class Handler(BaseHTTPRequestHandler):
             "simulation_active": bool(sim),
             "camera": {
                 "status": cam_status,
-                "age_s": 0.05,
+                "age_s": None,
                 "width": 640,
                 "height": 480,
             },
@@ -227,6 +245,13 @@ class Handler(BaseHTTPRequestHandler):
         }
 
     def do_POST(self):
+        if self.path == "/demo/control":
+            try:
+                body = self._read_body()
+                answer = self.server.demo.control(body.get("action"))
+                return self._json({"answer": answer, **self.server.demo.snapshot()})
+            except (AppError, ValueError, TypeError) as error:
+                return self._json({"error": str(error)})
         if self.path == "/debug/simulate":
             length = int(self.headers.get("Content-Length", 0))
             data = json.loads(self.rfile.read(length)) if length else {}
@@ -251,12 +276,49 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(400, "Invalid language code")
             return
 
-        if self.path != "/ask":
+        if self.path not in ("/ask", "/find", "/guide"):
             self.send_error(404)
             return
+        runtime = getattr(self.server, "demo", None)
+        generation = None
+        try:
+            body = self._read_body()
+            if runtime:
+                generation = runtime.begin(body.get("generation"))
+            if self.path in ("/find", "/guide") and not runtime:
+                raise AppError("Object workflow is unavailable.", 503)
+            if self.path == "/find":
+                runtime.clear_selection()
+                query = body.get("text", "")
+                if not isinstance(query, str) or not query.strip() or len(query) > 120:
+                    raise AppError("Enter an object name of at most 120 characters.", 400)
+                body["text"] = "Find the following object: " + query.strip()
+            elif self.path == "/guide":
+                label = runtime.consume_selection(body.get("selection_id"))
+                body["text"] = "Guide me to the " + label
+            return self._ask(body, runtime, generation, find_only=self.path == "/find", locate_only=self.path in ("/find", "/guide"))
+        except (AppError, ValueError, TypeError) as error:
+            return self._json({"error": str(error)})
+        finally:
+            if runtime and generation is not None:
+                runtime.finish(generation)
+
+    def _read_body(self):
         length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length))
-        play_host = body.get("play_host", True) and not self.server.ros_camera
+        if length < 0 or length > 12 * 1024 * 1024:
+            raise AppError("Request is too large.", 413)
+        body = json.loads(self.rfile.read(length)) if length else {}
+        if not isinstance(body, dict):
+            raise AppError("Expected a request object.", 400)
+        return body
+
+    def _ask(self, body, runtime, generation, find_only=False, locate_only=False):
+        # The browser owns scene playback; Guardian owns native laptop playback.
+        play_host = False
+        text = body.get("text", "")
+        if not isinstance(text, str) or len(text) > 2000:
+            raise AppError("Type a question of at most 2000 characters.", 400)
+        captured_at = time.time()
         log = []
         t_start = time.monotonic()
 
@@ -274,9 +336,11 @@ class Handler(BaseHTTPRequestHandler):
             note("No audio received", "warn")
 
         # ---- image ----
+        frame = None
         if self.server.ros_camera:
             try:
-                image_jpeg, _captured_at = self.server.ros_camera.capture()
+                frame = self.server.ros_camera.capture_frame()
+                image_jpeg = frame["jpeg"]
                 note(f"Pi ROS camera frame: {len(image_jpeg):,} bytes")
             except AppError as err:
                 image_jpeg = None
@@ -307,9 +371,11 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             result = self.server.gemini.ask(
-                audio_wav, image_jpeg, [],
+                audio_wav, image_jpeg, list(runtime.session.history) if runtime else [],
                 stream=True,
                 on_answer_chunk=_on_chunk,
+                **({"text": text} if text else {}),
+                **({"locate_only": True} if locate_only else {}),
             )
             gemini_s = round(time.monotonic() - gemini_t0, 2)
             note(f"Gemini OK — {gemini_s}s", "pass")
@@ -318,6 +384,8 @@ class Handler(BaseHTTPRequestHandler):
             if result["landmark"]:
                 note(f"  landmark: {result['landmark']!r}")
             note(f"  action: {result['device_action']}")
+            if result["device_action"] == "navigate_target":
+                note(f"  target: {result['target']!r} box_2d: {result['box_2d']}")
         except AppError as err:
             gemini_s = round(time.monotonic() - gemini_t0, 2)
             note(f"Gemini FAIL ({gemini_s}s): {err}", "fail")
@@ -326,6 +394,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(err), "log": log})
             return
 
+        if runtime and not runtime.current(generation):
+            return self._json({"cancelled": True})
+        if text:
+            result["transcript"] = text
         resp = {
             "transcript": result["transcript"],
             "answer": result["answer"],
@@ -334,17 +406,58 @@ class Handler(BaseHTTPRequestHandler):
             "gemini_time": gemini_s,
             "gemini_first_token": t_first_token[0],
         }
-        if result["device_action"] == "navigate_backpack":
-            if self.server.guidance:
-                resp["answer"] = self.server.guidance.start()
-            else:
-                resp["answer"] = "Backpack guidance is unavailable here."
-            note(resp["answer"])
-        elif result["device_action"] == "stop_navigation":
-            if self.server.guidance:
-                self.server.guidance.stop()
-            resp["answer"] = "Guidance stopped."
-            note(resp["answer"])
+        def apply_action():
+            if find_only:
+                from companion.voice.gemini import valid_box
+                box = valid_box(result.get("box_2d"))
+                label = str(result.get("target") or "").strip()[:40]
+                if image_jpeg and box and label:
+                    resp.update(target=label, box_2d=box,
+                                target_image=base64.b64encode(image_jpeg).decode(),
+                                selection_id=runtime.select_target(generation, label),
+                                selection_ttl_s=60, workflow="found",
+                                answer=f"I think I see the {label}. Check the highlighted object, then choose Guide to this object.")
+                else:
+                    resp.update(workflow="not_found", answer=(result["answer"] if image_jpeg else
+                                "No camera image is available. Connect the camera and find the object again."))
+                return
+            if (result["device_action"] == "navigate_target" and result["box_2d"] is not None
+                    and image_jpeg):
+                resp["target"] = result["target"]
+                resp["box_2d"] = result["box_2d"]
+                resp["target_image"] = base64.b64encode(image_jpeg).decode()
+                if not self.server.guidance:
+                    resp["answer"] = "Guidance is unavailable here."
+                elif not frame or not frame.get("stamp"):
+                    resp["answer"] = "Guidance needs the live camera."
+                else:
+                    resp["answer"] = self.server.guidance.go_to(
+                        result["target"] or "object", result["box_2d"],
+                        frame["stamp"], frame["width"], frame["height"])
+                note(resp["answer"])
+            elif result["device_action"] == "navigate_backpack":
+                if self.server.guidance:
+                    resp["answer"] = self.server.guidance.start()
+                else:
+                    resp["answer"] = "Backpack guidance is unavailable here."
+                note(resp["answer"])
+            elif result["device_action"] == "stop_navigation":
+                if self.server.guidance:
+                    self.server.guidance.stop()
+                resp["answer"] = "Guidance stopped."
+                note(resp["answer"])
+
+            if result["device_action"] == "guardian":
+                resp["answer"] = "Open Guardian with the Guardian button. It will use this session's recent camera observations."
+            elif runtime and result["device_action"] == "repeat":
+                resp["answer"] = runtime.session.last_answer or "No answer to repeat yet."
+            elif runtime and result["device_action"] == "help":
+                resp["answer"] = runtime.status_text()
+        if runtime:
+            runtime.apply(generation, apply_action)
+            runtime.remember(generation, {**result, "answer": resp["answer"]}, image_jpeg, captured_at)
+        else:
+            apply_action()
 
         # ---- ElevenLabs ----
         audio = None
@@ -379,6 +492,8 @@ class Handler(BaseHTTPRequestHandler):
         note(f"Total round trip: {total}s", "pass" if total < 5 else "warn")
         resp["total_time"] = total
         resp["log"] = log
+        if runtime and not runtime.current(generation):
+            return self._json({"cancelled": True})
         self._json(resp)
 
     def _synthesize(self, text):
@@ -422,6 +537,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -440,7 +556,7 @@ PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Voice Companion — Hardware Simulator & Debug Console</title>
+<title>Beacon — Live Dashboard</title>
 <meta name="description" content="Push-to-talk debug interface simulating the Raspberry Pi voice companion">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -509,6 +625,7 @@ header .tag{
   position:relative;margin-bottom:1.1rem;
 }
 .cam video,.cam img{width:100%;height:100%;object-fit:cover;display:block}
+.target-view{width:100%;border-radius:8px;display:block}
 .cam-tag{
   position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);
   backdrop-filter:blur(6px);padding:2px 8px;border-radius:6px;
@@ -696,12 +813,22 @@ header .tag{
 .sim-btn.ok:hover{background:rgba(78,205,196,0.15)}
 .sim-btn.reset{color:#a78bfa;border-color:rgba(167,139,250,0.3);margin-left:auto}
 .sim-btn.reset:hover{background:rgba(167,139,250,0.15)}
+
+/* Integrated operator controls retain the dashboard palette and compact cards. */
+.object-workflow,.operator-controls{width:100%;max-width:420px;flex-shrink:0;margin-bottom:1rem}
+.object-workflow{padding:15px;border:1px solid rgba(78,205,196,.25);border-radius:12px;background:linear-gradient(140deg,rgba(78,205,196,.055),rgba(139,92,246,.035))}
+.workflow-title{display:flex;align-items:center;justify-content:space-between;gap:8px}.workflow-title h2{font-size:.9rem;font-weight:600}
+.workflow-steps{display:flex;gap:8px;margin:13px 0;font: .65rem var(--mono);color:#aaa}.workflow-steps span{padding:4px 7px;border:1px solid var(--border2);border-radius:5px}.workflow-steps .current{color:var(--accent);border-color:var(--accent)}
+.operator-row{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0}.operator-row input{flex:1;min-width:120px;padding:9px 10px;border:1px solid var(--border2);border-radius:7px;background:var(--bg);color:var(--text);font: .78rem var(--font)}
+.operator-btn{border:1px solid var(--border2);background:rgba(255,255,255,.035);color:var(--text);border-radius:7px;padding:8px 10px;font: .72rem var(--font);cursor:pointer}.operator-btn.primary{color:var(--accent);border-color:rgba(78,205,196,.4);background:rgba(78,205,196,.08)}.operator-btn.danger{color:#ff9b9b;border-color:rgba(255,107,107,.3)}button:disabled{opacity:.4;cursor:not-allowed}.operator-btn:focus-visible,input:focus-visible,.talk:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.object-workflow p,.operator-controls small,.object-workflow small,.hud-card small{color:#a5a5b2;font-size:.73rem;line-height:1.5}.object-workflow p{margin:8px 0}#object-preview{max-height:200px;object-fit:contain;background:var(--bg)}.observation-trail{font-size:.72rem;color:#aaa;line-height:1.5;margin-top:10px}.cam{flex-shrink:0}.btn-area{margin-bottom:.4rem}.talk{width:64px;height:64px}.interact,.debug{min-height:0}
+@media(max-width:900px){header{flex-wrap:wrap}.header-actions{margin-left:0}.interact,.debug{overflow:visible}.cam{min-height:240px}}
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Voice Companion</h1>
+  <h1>Beacon</h1>
   <span class="tag" id="model-tag">…</span>
   <div class="lang-selector" id="lang-selector">
     <button class="lang-btn active" data-lang="en" onclick="setLanguage('en')">🇺🇸 EN</button>
@@ -725,7 +852,7 @@ header .tag{
 <div class="interact">
   <div class="cam-toggle-row">
     <button class="cam-tab-btn active" id="btn-view-cam" onclick="switchLeftView('cam')">📷 Live Camera</button>
-    <button class="cam-tab-btn" id="btn-view-map" onclick="switchLeftView('map')">🗺️ 2D Costmap / A* Radar</button>
+    <button class="cam-tab-btn" id="btn-view-map" onclick="switchLeftView('map')">🗺️ Illustrative radar (not live map)</button>
   </div>
   <div class="cam" id="cam-box">
     <span class="cam-tag" id="cam-tag">…</span>
@@ -736,9 +863,22 @@ header .tag{
     <div class="meter-wrap"><div class="meter-bar" id="meter"></div></div>
   </div>
 
+  <section class="object-workflow" aria-labelledby="object-heading">
+    <div class="workflow-title"><h2 id="object-heading">Find an object & guide</h2><span class="hud-pill idle" id="object-phase">READY</span></div>
+    <div class="workflow-steps"><span id="step-find" class="current">1 · Find</span><span id="step-confirm">2 · Inspect</span><span id="step-guide">3 · Guide</span></div>
+    <form id="object-form" class="operator-row">
+      <input id="object-query" maxlength="120" placeholder="Chair, water bottle, doorway…" aria-label="Object to find" required>
+      <button id="find-object" class="operator-btn primary" type="submit">Find object</button>
+    </form>
+    <p id="object-status" role="status">Name one visible object. Finding it does not start guidance.</p>
+    <canvas id="object-preview" class="target-view" style="display:none" aria-label="Recognized target on the captured camera frame"></canvas>
+    <div class="operator-row"><button id="guide-object" class="operator-btn primary" disabled>Guide to this object</button><button id="stop-guidance" class="operator-btn danger">Stop guidance</button></div>
+    <small id="object-note">Guidance rechecks a fresh image. Depth routing needs the Pi.</small>
+  </section>
+
   <div class="audio-bar">
     <label title="Play audio via Web Audio / HTML5 in this browser tab"><input type="checkbox" id="opt-browser-audio" checked> Browser Audio</label>
-    <label title="Play audio directly on host computer speaker (Mac/Pi)"><input type="checkbox" id="opt-host-audio" checked> Host Speaker</label>
+    <label title="Scene audio plays once in the browser; Guardian uses native laptop audio"><input type="checkbox" id="opt-host-audio" disabled> Separate host playback disabled</label>
     <label title="Play Pi hardware earcons (sound effects)"><input type="checkbox" id="opt-earcons" checked> Earcons</label>
   </div>
 
@@ -747,14 +887,21 @@ header .tag{
       <svg class="mic" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
       <div class="spin"></div>
     </button>
-    <span class="status-text" id="status">Initializing…</span>
+    <span class="status-text" id="status" role="status" aria-live="polite">Initializing…</span>
     <span class="rec-timer" id="timer"></span>
   </div>
+
+  <section class="operator-controls" aria-label="Laptop controls">
+    <form id="question-form" class="operator-row"><input id="typed-question" maxlength="2000" placeholder="Ask about the scene…" aria-label="Typed scene question" required><button id="ask-typed" class="operator-btn" type="submit">Ask</button></form>
+    <div class="operator-row"><button id="enable-mic" class="operator-btn">Enable mic</button><button id="stop-all" class="operator-btn danger">Stop · Esc</button><button id="repeat-answer" class="operator-btn">Repeat</button><button id="local-status" class="operator-btn">Status</button></div>
+    <small id="operator-hint">Hold the microphone button or Space to talk. Release to send.</small>
+  </section>
 
   <div class="resp" id="resp">
     <div class="f"><label>Heard</label><p id="r-heard"></p></div>
     <div class="f"><label>Answer</label><p id="r-answer"></p></div>
     <div class="f" id="r-lm-wrap" style="display:none"><label>Landmark</label><p id="r-lm" class="lm"></p></div>
+    <div class="f" id="r-target-wrap" style="display:none"><label>Target (frame sent to Gemini)</label><canvas id="r-target" class="target-view"></canvas></div>
     <div class="f" id="r-audio-wrap" style="display:none">
       <label>Voice Output</label>
       <div class="audio-player-row">
@@ -775,7 +922,7 @@ header .tag{
       <button class="hud-tab" id="tab-log">📋 Console Log</button>
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:.5rem">
-      <span class="hud-pill ok" id="hud-cam-status">CAM: READY</span>
+      <span class="hud-pill idle" id="hud-cam-status">CAM: UNKNOWN</span>
       <span class="hud-pill idle" id="hud-lang">EN</span>
       <button class="clear-btn" id="clear-log" style="display:none">Clear</button>
     </div>
@@ -785,11 +932,11 @@ header .tag{
   <div class="hud-panel" id="hud-panel">
     <!-- Real-Time Latency & Vitals Meter -->
     <div class="vitals-strip">
-      <div class="vital-item"><span class="vital-k">CAM:</span> <span class="vital-v" id="vital-cam">30 FPS · 33ms</span></div>
-      <div class="vital-item"><span class="vital-k">HAZARD:</span> <span class="vital-v" id="vital-haz">16ms</span></div>
-      <div class="vital-item"><span class="vital-k">PLANNER:</span> <span class="vital-v" id="vital-plan">42ms</span></div>
+      <div class="vital-item"><span class="vital-k">CAM:</span> <span class="vital-v" id="vital-cam">Unmeasured</span></div>
+      <div class="vital-item"><span class="vital-k">HAZARD:</span> <span class="vital-v" id="vital-haz">Unmeasured</span></div>
+      <div class="vital-item"><span class="vital-k">PLANNER:</span> <span class="vital-v" id="vital-plan">Unmeasured</span></div>
       <div class="vital-item"><span class="vital-k">RTT:</span> <span class="vital-v" id="vital-rtt">0ms</span></div>
-      <div class="vital-pill ok" id="vital-budget">SAFETY: PASS (&lt;100ms)</div>
+      <div class="vital-pill" id="vital-budget">LATENCY UNMEASURED</div>
     </div>
 
     <!-- Demo Simulator / Judge Controls -->
@@ -876,12 +1023,12 @@ header .tag{
     </div>
 
     <!-- Hazard Perception Radar -->
-    <div class="hud-card hazard-card clear" id="hazard-card">
+    <div class="hud-card hazard-card urgent" id="hazard-card">
       <div class="hud-card-title">
         <span>Obstacle Radar (Chest/Head Depth)</span>
-        <span class="hud-pill ok" id="hazard-pill">CLEAR</span>
+        <span class="hud-pill ok" id="hazard-pill">UNKNOWN</span>
       </div>
-      <div class="hazard-msg" id="hazard-msg">Forward path clear. No obstacles in calibrated volume.</div>
+      <div class="hazard-msg" id="hazard-msg">Waiting for live hazard sensing. Movement guidance is inhibited.</div>
       <div class="telemetry-row">
         <div class="tele-cell">
           <div class="tele-k">Severity</div>
@@ -918,6 +1065,9 @@ header .tag{
           <div class="tele-v" id="guard-obs">0 SAVED</div>
         </div>
       </div>
+      <div class="operator-row"><button id="guardian-open" class="operator-btn primary">Open Guardian</button><button id="guardian-end" class="operator-btn" disabled>End Guardian</button></div>
+      <small id="guardian-help">Uses the laptop microphone and speakers. Text messages are simulated.</small>
+      <div id="observation-trail" class="observation-trail"></div>
     </div>
   </div>
 
@@ -1075,9 +1225,12 @@ async function init() {
       fallback.src = '/pi-frame?t=' + Date.now();
     };
     fallback.onerror = () => { fallback.style.display = 'none'; dot('cam', false); };
-    fallback.onload = () => { fallback.style.display = 'block'; dot('cam', true); };
+    fallback.onload = () => { fallback.style.display = currentLeftView==='cam'?'block':'none'; dot('cam', true); };
     refreshPiFrame();
     setInterval(refreshPiFrame, 1000);
+  } else if (serverStatus && serverStatus.fallback_image) {
+    fallback.style.display = 'block';
+    camTag.textContent = 'Static rehearsal image';
   } else try {
     const stream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}});
     webcamEl.srcObject = stream;
@@ -1090,24 +1243,17 @@ async function init() {
   } catch(e) {
     fallback.style.display = 'block';
     camTag.textContent = 'image';
-    dot('cam', true);
-    log('Webcam unavailable — using fallback image', 'warn');
+    dot('cam', false);
+    camTag.textContent = 'No camera';
+    log('Webcam unavailable — connect a camera or use a labelled rehearsal image', 'warn');
   }
 
-  // Mic
-  statusEl.textContent = 'Allow microphone access in the browser…';
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({audio:{channelCount:1}});
-    dot('mic', true);
-    btn.disabled = false;
-    statusEl.textContent = 'Hold to talk (or hold Space)';
-    log('Microphone: active', 'pass');
-  } catch(e) {
-    dot('mic', false);
-    statusEl.textContent = 'Microphone blocked';
-    log('Microphone access denied — enable in browser settings', 'fail');
-  }
+  dashboardConfig = serverStatus || {};
+  await pollOperator();
+  statusEl.textContent = 'Ready. Enable the microphone or type a question.';
+  updateOperatorControls();
 
+  if (serverStatus && serverStatus.guidance) setInterval(pollGuidance, 1000);
   log('Ready.', 'pass');
 }
 
@@ -1197,13 +1343,14 @@ function tickMeter(){
 }
 
 /* ================ Voice Output Pipeline ================ */
-async function playVoiceResponse(b64Audio, answerText) {
+async function playVoiceResponse(b64Audio, answerText, token=requestEpoch) {
+  if(token!==requestEpoch || guardianState!=="closed") return;
   lastVoiceData = {audio: b64Audio, answer: answerText};
   const audioWrap = $('r-audio-wrap');
   audioWrap.style.display = '';
 
   if (!optBrowserAudio.checked) {
-    audioStatus.textContent = 'Browser audio disabled (playing on host speaker only)';
+    audioStatus.textContent = 'Browser audio disabled; enable Browser Audio to hear scene answers';
     log('Browser audio skipped (disabled in options)', 'info');
     return;
   }
@@ -1225,6 +1372,7 @@ async function playVoiceResponse(b64Audio, answerText) {
           if (ctx.state === 'suspended') await ctx.resume();
           const copy = arr.slice(0).buffer;
           const decoded = await ctx.decodeAudioData(copy);
+          if(token!==requestEpoch || guardianState!=="closed") return;
           if (activeWebAudioSource) {
             try { activeWebAudioSource.stop(); } catch(e){}
           }
@@ -1244,7 +1392,7 @@ async function playVoiceResponse(b64Audio, answerText) {
       }
 
       // If Web Audio didn't handle it, try HTML5 Audio
-      if (!playedWebAudio) {
+      if (!playedWebAudio && token===requestEpoch && guardianState==='closed') {
         audioPlayer.play().then(() => {
           audioStatus.textContent = 'Playing voice output (HTML5 🔊)…';
           log('Playing voice via HTML5 Audio 🔊', 'pass');
@@ -1256,7 +1404,7 @@ async function playVoiceResponse(b64Audio, answerText) {
       dot('el', true);
     } catch(err) {
       log('Audio playback error: ' + err.message, 'fail');
-      speakFallback(answerText);
+      if(token===requestEpoch && guardianState==='closed') speakFallback(answerText);
     }
   } else if (answerText) {
     speakFallback(answerText);
@@ -1284,129 +1432,38 @@ replayBtn.onclick = () => {
   }
 };
 
-/* ================ button handlers ================ */
-async function onDown(e){
-  e.preventDefault();
-  if(pressed||btn.classList.contains('think')) return;
-
-  // Stop any ongoing speech
-  if(activeWebAudioSource){
-    try{activeWebAudioSource.stop()}catch(e){}
-    activeWebAudioSource=null;
-    log('Barge-in — stopped active audio');
-  }
-  if(audioPlayer){audioPlayer.pause()}
-  if('speechSynthesis' in window){window.speechSynthesis.cancel()}
-
-  getAudioCtx();
-  playEarcon('listening');
-
-  pressed=true;
-  btn.classList.add('rec');
-  statusEl.textContent='Listening…';
-  log('Button pressed — recording started');
-  startRec();
+/* ================ named-object guidance ================ */
+function drawTarget(b64, box, label, canvasId="r-target", token=requestEpoch){
+  const img=new Image();
+  img.onload=()=>{
+    if(token!==requestEpoch) return;
+    const c=$(canvasId), ctx=c.getContext('2d');
+    c.width=img.naturalWidth; c.height=img.naturalHeight;
+    ctx.drawImage(img,0,0);
+    // box_2d is [y_min, x_min, y_max, x_max] on 0-1000.
+    const [y0,x0,y1,x1]=box.map((v,i)=>v/1000*(i%2?c.width:c.height));
+    ctx.lineWidth=Math.max(2,c.width/200); ctx.strokeStyle='#3ddc84'; ctx.fillStyle='#3ddc84';
+    ctx.strokeRect(x0,y0,x1-x0,y1-y0);
+    ctx.font=`${Math.max(14,Math.round(c.width/40))}px sans-serif`;
+    ctx.fillText(label||'target',x0+4,Math.max(y0-6,18));
+  };
+  img.src='data:image/jpeg;base64,'+b64;
 }
 
-async function onUp(e){
-  e.preventDefault();
-  if(!pressed||!recording) return;
-  pressed=false;
-  btn.classList.remove('rec');
-  btn.classList.add('think');
-  statusEl.textContent='Thinking…';
-  timerEl.textContent='';
-
-  playEarcon('thinking');
-
-  const wav=stopRec();
-  const img=captureFrame();
-  log('Sending to server…');
-
+let guidanceEventN=0, guidancePrimed=false;
+async function pollGuidance(){
   try{
-    const t0=performance.now();
-    const r=await fetch('/ask',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        audio:toB64(wav),
-        image:img,
-        play_host:optHostAudio.checked
-      })
-    });
+    const r=await fetch('/guidance/events?since='+guidanceEventN);
     const d=await r.json();
-    btn.classList.remove('think');
-
-    // replay server logs
-    if(d.log) addServerLogs(d.log);
-
-    if(d.error){
-      statusEl.textContent=d.error;
-      dot('gemini',false);
-      playEarcon('error');
-      log('Request failed: '+d.error,'fail');
-      return;
+    for(const e of d.events||[]){
+      guidanceEventN=Math.max(guidanceEventN,e.n);
+      if(!guidancePrimed) continue;  // Events from before this page loaded.
+      log('Guidance: '+e.text, e.priority<=1?'warn':'info');
+      if(!operatorBusy && guardianState === 'closed') speakFallback(e.text);
     }
-    dot('gemini',true);
-    statusEl.textContent='Hold to talk (or hold Space)';
-
-    // response card
-    $('r-heard').textContent=d.transcript||'(empty)';
-    $('r-answer').textContent=d.answer;
-    const lmW=$('r-lm-wrap');
-    if(d.landmark){$('r-lm').textContent=d.landmark;lmW.style.display=''}
-    else lmW.style.display='none';
-
-    // timings
-    const tDiv=$('r-timings');
-    tDiv.innerHTML='';
-    const add=(l,v)=>{const s=document.createElement('span');s.innerHTML=`${l} <b>${v}</b>`;tDiv.appendChild(s)};
-    if(d.gemini_first_token!=null) add('Gemini 1st token',d.gemini_first_token+'s');
-    if(d.gemini_time) add('Gemini total',d.gemini_time+'s');
-    if(d.el_first_byte!=null) add('11Labs 1st byte',d.el_first_byte+'s');
-    if(d.el_total) add('11Labs total',d.el_total+'s');
-    if(d.total_time) add('Total',d.total_time+'s');
-    respCard.classList.add('vis');
-
-    // play voice output
-    playVoiceResponse(d.audio, d.answer);
-
-  }catch(err){
-    btn.classList.remove('think');
-    statusEl.textContent='Network error';
-    playEarcon('error');
-    log('Fetch error: '+err.message,'fail');
-  }
+    guidancePrimed=true;
+  }catch(err){}
 }
-
-function onCancel(e){
-  if(!pressed)return;
-  pressed=false;recording=false;
-  cancelAnimationFrame(timerRaf);
-  if(recProc)recProc.disconnect();
-  if(recSource)recSource.disconnect();
-  btn.classList.remove('rec');
-  statusEl.textContent='Cancelled — hold to talk';
-  timerEl.textContent='';meterBar.style.width='0%';
-  log('Recording cancelled');
-}
-
-btn.addEventListener('pointerdown',onDown);
-btn.addEventListener('pointerup',onUp);
-btn.addEventListener('pointerleave',onCancel);
-btn.addEventListener('pointercancel',onCancel);
-btn.addEventListener('contextmenu',e=>e.preventDefault());
-
-/* keyboard: hold Space */
-document.addEventListener('keydown',e=>{
-  if(e.code==='Space'&&!e.repeat&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){
-    e.preventDefault();onDown(e);
-  }
-});
-document.addEventListener('keyup',e=>{
-  if(e.code==='Space'&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){
-    e.preventDefault();onUp(e);
-  }
-});
 
 /* ================ Judge HUD Polling ================ */
 const tabHud = $('tab-hud'), tabLog = $('tab-log'),
@@ -1461,12 +1518,13 @@ function switchLeftView(mode) {
     $('webcam').style.display = 'none';
     $('fallback').style.display = 'none';
     canvas.style.display = 'block';
-    $('cam-tag').textContent = '2D A* Planner Radar';
+    $('cam-tag').textContent = 'Illustrative radar · not live map';
     drawPlannerRadar(lastTelemetry || {});
   } else {
     canvas.style.display = 'none';
     $('cam-tag').textContent = 'Live Camera';
-    init();
+    $('webcam').style.display = hasWebcam ? 'block' : 'none';
+    $('fallback').style.display = hasWebcam ? 'none' : 'block';
   }
 }
 
@@ -1556,28 +1614,31 @@ function drawPlannerRadar(d) {
   ctx.setLineDash([]);
 
   // Hazards
-  const h = d.hazard || {};
-  if (h.available && (h.urgent || h.caution)) {
-    let hazDist = (h.distance_m || 1.1) * scale;
-    let hazAngle = -Math.PI / 2 + (h.direction === 'left' ? -0.4 : (h.direction === 'right' ? 0.4 : 0));
+  const hazard = d.hazard || {};
+  if (hazard.available && (hazard.urgent || hazard.caution)) {
+    let hazDist = (hazard.distance_m || 1.1) * scale;
+    let hazAngle = -Math.PI / 2 + (hazard.direction === 'left' ? -0.4 : (hazard.direction === 'right' ? 0.4 : 0));
     let hx = cx + Math.cos(hazAngle) * hazDist;
     let hy = cy + Math.sin(hazAngle) * hazDist;
 
-    ctx.fillStyle = h.urgent ? 'rgba(255,107,107,0.85)' : 'rgba(255,217,61,0.85)';
-    ctx.shadowColor = h.urgent ? '#ff6b6b' : '#ffd93d';
+    ctx.fillStyle = hazard.urgent ? 'rgba(255,107,107,0.85)' : 'rgba(255,217,61,0.85)';
+    ctx.shadowColor = hazard.urgent ? '#ff6b6b' : '#ffd93d';
     ctx.shadowBlur = 16;
     ctx.beginPath();
-    ctx.arc(hx, hy, h.urgent ? 14 : 10, 0, Math.PI * 2);
+    ctx.arc(hx, hy, hazard.urgent ? 14 : 10, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 10px Inter, sans-serif';
-    ctx.fillText(h.urgent ? '⚠️ DANGER' : '⚠️ CAUTION', hx + 16, hy + 4);
+    ctx.fillText(hazard.urgent ? '⚠️ DANGER' : '⚠️ CAUTION', hx + 16, hy + 4);
   }
 }
 
+let isPolling = false;
 async function pollDebugState() {
+  if (isPolling) return;
+  isPolling = true;
   try {
     const t0 = performance.now();
     const res = await fetch('/debug/state');
@@ -1590,6 +1651,7 @@ async function pollDebugState() {
       drawPlannerRadar(d);
     }
   } catch (err) {}
+  finally { isPolling = false; }
 }
 
 function updateHud(d, rtt) {
@@ -1614,9 +1676,9 @@ function updateHud(d, rtt) {
   if (v.planner_loop_ms != null) {
     $('vital-plan').textContent = `${v.planner_loop_ms}ms`;
   }
-  const budgetPass = v.safety_budget_pass !== false;
+  const budgetPass = v.safety_budget_pass === true;
   $('vital-budget').className = 'vital-pill ' + (budgetPass ? 'ok' : 'alert');
-  $('vital-budget').textContent = budgetPass ? 'SAFETY: PASS (<100ms)' : 'SAFETY: EXCEEDED';
+  $('vital-budget').textContent = v.safety_budget_pass == null ? 'LATENCY UNMEASURED' : budgetPass ? 'LATENCY <100ms' : 'LATENCY EXCEEDED';
 
   // Update Simulation Pill
   const simPill = $('sim-pill');
@@ -1738,7 +1800,7 @@ function updateHud(d, rtt) {
     hCard.className = 'hud-card hazard-card clear';
     hPill.textContent = 'CLEAR';
     hPill.className = 'hud-pill ok';
-    hMsg.textContent = 'Forward path clear. No obstacles in calibrated volume.';
+    hMsg.textContent = 'No obstacle reported in the observed calibrated volume. Unobserved space is unknown.';
     hSev.textContent = 'CLEAR';
   }
 
@@ -1761,8 +1823,8 @@ function updateHud(d, rtt) {
 }
 setInterval(pollDebugState, 333);
 
-init();
 </script>
+<script src="/dashboard-controls.js"></script>
 </body>
 </html>
 """
@@ -1799,8 +1861,8 @@ def main():
 
     chosen_model = args.model or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
 
-    HTTPServer.allow_reuse_address = True
-    server = HTTPServer((args.host, args.port), Handler)
+    ThreadingHTTPServer.allow_reuse_address = True
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.gemini = Gemini(gemini_key, chosen_model)
     server.el_key = el_key
     server.el_voice = el_voice
@@ -1827,11 +1889,13 @@ def main():
         else:
             print(f"Warning: {path} not found", file=sys.stderr)
 
-    url = f"http://localhost:{args.port}"
+    from companion.demo.runtime import DemoRuntime
+    server.demo = DemoRuntime(server)
+    url = f"http://localhost:{args.port}/"
     print(f"Listening on {url}")
     print(f"Gemini model: {server.gemini.model}")
     print(f"ElevenLabs voice: {el_voice} ({el_source})")
-    print("Voice output: browser, plus host speaker in local image mode")
+    print("Voice output: browser for scene answers; laptop audio for Guardian")
 
     if not args.no_open:
         webbrowser.open(url)
@@ -1841,6 +1905,7 @@ def main():
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
+        server.demo.close()
         server.server_close()
         if server.guidance:
             server.guidance.close()

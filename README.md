@@ -1,5 +1,25 @@
 # RealSense D415 + ROS 2 RTAB-Map
 
+## Beacon laptop judging demo
+
+The two feature branches are integrated in this working tree for one stationary
+scene → named chair → Guardian demonstration, using the laptop microphone and
+speakers. Start with the [demo runbook](docs/Beacon-Laptop-Demo.md).
+
+```bash
+python3 -B scripts/demo_preflight.py
+python3 -B scripts/laptop_launch.py --pi-ip 100.73.168.115
+```
+
+The dashboard is `http://localhost:8080/` (`/demo` opens the same page). Use its
+**Find an object & guide** card: Find → inspect the highlighted object → Guide.
+Guide captures a fresh frame and identifies the object again before routing.
+Laptop voice, typed questions, Guardian, radar and judge controls share this page.
+The launcher reads `.env`; Docker RViz is
+optional (`--viewer`). Rebuild the Pi from this source first. No GPIO button is
+required. Live movement remains inhibited without verified hazard/audio health.
+
+
 This repository is a standard ROS 2 Jazzy workspace plus a reproducible Ubuntu
 24.04 test container for Docker Desktop on macOS. Hardware deployment runs
 natively on Ubuntu 24.04 or a Raspberry Pi.

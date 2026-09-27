@@ -1,5 +1,18 @@
 # Voice Companion — Specification
 
+## Laptop demo integration (2026-09-27)
+
+[demo/specs.md](demo/specs.md) defines the narrow laptop judging path. It uses
+browser hold-to-talk and typed scene requests rather than GPIO, shares `Session`
+with Guardian, and serializes scene/Guardian audio ownership. The Pi transport now
+carries exact frame stamps/dimensions and named-target commands/events. No laptop
+code grants hazard permission. The default launch page `/` combines the original
+dashboard with laptop controls; `/demo` is an alias. The object workflow is
+Find → inspect the box → Guide, with a new capture and identification for Guide.
+See [dashboard/specs.md](dashboard/specs.md). The physical-button mappings below
+remain unchanged.
+
+
 > This was the voice-only design before integration. The current branch also
 > accepts spoken backpack guidance requests and gates the existing ROS direction
 > output; see `companion/README.md` for the current behavior.

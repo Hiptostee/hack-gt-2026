@@ -206,6 +206,8 @@ class Companion:
         self._cancel_taps()
         self.audio.stop()
         self.state = "guardian"
+        if self.guidance:
+            self.guidance.stop()
         self.guardian.open()
 
     def _guardian_request(self, _at):
@@ -395,6 +397,12 @@ class Companion:
 
     def _act(self, result, previous, generation):
         action = result["device_action"]
+        if action == "navigate_target":
+            if result.get("box_2d") is None:
+                self._speak(result["answer"], generation)
+            else:
+                self._speak(self._go_to(result), generation, local=True)
+            return
         if action == "navigate_backpack":
             if self.guidance is None:
                 self._speak(i18n("guidance_unavailable", self.lang), generation, local=True)
@@ -425,6 +433,16 @@ class Companion:
         elif action == "quieter":
             self.audio.gain = max(0.3, self.audio.gain - 0.3)
         self._speak(result["answer"], generation)
+
+    def _go_to(self, result):
+        if self.guidance is None:
+            return "Guidance is unavailable here."
+        frame_info = getattr(self.camera, "frame_info", None)
+        frame = frame_info(self.session.image) if frame_info else None
+        if frame is None:
+            return "Guidance needs the live camera."
+        return self.guidance.go_to(result["target"] or "object", result["box_2d"],
+                                   frame["stamp"], frame["width"], frame["height"])
 
     def _help(self, generation):
         self._speak(status_text(self.camera, self.gemini, self.session, lang=self.lang),
@@ -557,7 +575,10 @@ def main():
             return 1
     if args.ros:
         from companion.voice.guidance import RosGuidance
-        guidance = RosGuidance()
+        def announce(text, priority):
+            threading.Thread(target=speech.say, args=(text,),
+                             kwargs={"local": True, "priority": priority}, daemon=True).start()
+        guidance = RosGuidance(on_event=announce)
     session = Session()
     guardian = None
     if os.environ.get("ELEVENLABS_API_KEY") and os.environ.get("ELEVENLABS_AGENT_ID"):

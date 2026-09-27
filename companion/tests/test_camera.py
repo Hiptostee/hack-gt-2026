@@ -26,8 +26,10 @@ class CameraTests(unittest.TestCase):
     def setUp(self):
         self.camera = self.bridge.RosCamera.__new__(self.bridge.RosCamera)
         self.camera.lock = threading.Lock()
-        self.camera.frame = SimpleNamespace(encoding="rgb8", width=2, height=2,
-                                            step=6, data=b"0" * 12)
+        self.camera.recent = self.bridge.deque(maxlen=4)
+        self.camera.frame = SimpleNamespace(
+            encoding="rgb8", width=2, height=2, step=6, data=b"0" * 12,
+            header=SimpleNamespace(stamp=SimpleNamespace(sec=1790000000, nanosec=5000)))
         self.camera.received = time.monotonic()
         self.camera.age_at_receipt = 0
 
@@ -55,6 +57,18 @@ class CameraTests(unittest.TestCase):
         self.assertEqual(data, b"jpeg")
         self.assertLess(abs(stamp - time.time()), 1)
         self.bridge.cv2.imencode.assert_called_once()
+
+    def test_frame_carries_ros_stamp_and_original_size(self):
+        self.bridge.cv2.imencode.return_value = (True, SimpleNamespace(tobytes=lambda: b"jpeg"))
+        frame = self.camera.capture_frame()
+        self.assertEqual(frame["stamp"], "1790000000.000005000")
+        self.assertEqual((frame["width"], frame["height"]), (2, 2))
+
+    def test_frame_info_matches_only_a_returned_jpeg(self):
+        self.bridge.cv2.imencode.return_value = (True, SimpleNamespace(tobytes=lambda: b"jpeg"))
+        jpeg, _ = self.camera.capture()
+        self.assertEqual(self.camera.frame_info(jpeg)["stamp"], "1790000000.000005000")
+        self.assertIsNone(self.camera.frame_info(bytes(bytearray(b"jpeg"))))
 
     def test_unsupported_encoding_is_reported(self):
         self.camera.frame.encoding = "16UC1"

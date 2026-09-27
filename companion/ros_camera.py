@@ -1,6 +1,7 @@
 """ROS is optional: import this module only for --ros deployments."""
 import threading
 import time
+from collections import deque
 
 import cv2
 import numpy as np
@@ -21,6 +22,7 @@ class RosCamera:
         self.frame = None
         self.received = 0
         self.age_at_receipt = float("inf")
+        self.recent = deque(maxlen=4)
         self.subscription = self.node.create_subscription(Image, topic, self.receive,
                                                          qos_profile_sensor_data)
         if hazard_topic and on_hazard:
@@ -68,6 +70,17 @@ class RosCamera:
             return "Ready" if self.fresh() else "No recent camera frame"
 
     def capture(self):
+        frame = self.capture_frame()
+        return frame["jpeg"], frame["captured_at"]
+
+    def frame_info(self, jpeg):
+        """Metadata for a JPEG this camera returned recently, or None."""
+        with self.lock:
+            return next((frame for frame in reversed(self.recent) if frame["jpeg"] is jpeg), None)
+
+    def capture_frame(self):
+        """width/height are the ROS image's, before any resize; aligned depth
+        shares them, so pixel boxes for the planner must use them."""
         with self.lock:
             if not self.fresh():
                 raise AppError("No recent camera frame. Check the camera connection.", 503)
@@ -85,7 +98,13 @@ class RosCamera:
         success, encoded = cv2.imencode(".jpg", pixels, [cv2.IMWRITE_JPEG_QUALITY, 90])
         if not success:
             raise AppError("Could not encode camera image.", 503)
-        return encoded.tobytes(), time.time() - age
+        stamp = message.header.stamp
+        frame = {"jpeg": encoded.tobytes(), "captured_at": time.time() - age,
+                 "stamp": f"{stamp.sec}.{stamp.nanosec:09d}",
+                 "width": message.width, "height": message.height}
+        with self.lock:
+            self.recent.append(frame)
+        return frame
 
     def close(self):
         self.executor.shutdown()
