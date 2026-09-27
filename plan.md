@@ -19,8 +19,8 @@ pushed); and `origin/tactileESP32` at `84e942c` (firmware plus a
 laptop-side tactile sender). None is merged into `main`. Branch contents do
 not establish that the combined wearable has been tested.
 
-**Latest working-tree update:** Stage A hazard software is implemented on
-`feature/guardian`, not merged/committed by the agent. It adds depth geometry,
+**Latest implementation update:** Stage A hazard software is committed on
+`feature/guardian` as `5fb2864`. It adds depth geometry,
 strict hazard/health snapshots, offline phrases and an expiring companion-to-
 direction permission. Synthetic ROS checks pass; mounting, coverage and Pi
 latency remain unverified. Default configuration intentionally inhibits guidance.
@@ -85,7 +85,7 @@ Remaining gaps:
   `PI_VOICE=1 ./scripts/pi_launch.sh`. `--pi-url` lets the same service run on
   the laptop against the Pi camera as a fallback. Pi bring-up TO BE VALIDATED
   with `python3 -m companion.guardian.preflight --pin 17`.
-- **Hazard detector now exists in the `feature/guardian` working tree.**
+- **Hazard detector exists on `feature/guardian` (`5fb2864`).**
   `/hazard_warning` has a Stage A publisher and strict consumer. Not integrated
   into `main`; hardware calibration/coverage and latency remain open (§5).
 
@@ -215,7 +215,7 @@ tactile-only demo or a different button mapping.
 | Direction and pose stabilization | Direction, valid-visual-odometry and stable-odometry nodes | INTEGRATED on `integeration`; direction gated by `/backpack/guidance_active` |
 | Voice → navigation | `integeration`: `navigate_backpack` / `stop_navigation` actions, `RosGuidance`, Pi bridge | IMPLEMENTED ON INTEGRATION BRANCH; end-to-end walk TO BE VALIDATED |
 | Voice companion | `main` (`fca5a5e`): Gemini streaming, ElevenLabs/local speech, button state machine; newer tap mapping on `feature/guardian` | IMPLEMENTED; current demo uses laptop browser audio; Pi button/mic/speaker demonstration TO BE VALIDATED |
-| Hazard detection/interruption | `feature/guardian` working tree: C++ Stage A geometry, JSON snapshot validation, resident phrase bank, all-state interruption and expiring movement permission | IMPLEMENTED IN SOFTWARE: unit/synthetic ROS checks pass; defaults unavailable until mount/coverage configuration; Pi onset timing TO BE VALIDATED |
+| Hazard detection/interruption | `feature/guardian` (`5fb2864`): C++ Stage A geometry, JSON snapshot validation, resident phrase bank, all-state interruption and expiring movement permission | IMPLEMENTED IN SOFTWARE: unit/synthetic ROS checks pass; defaults unavailable until mount/coverage configuration; Pi onset timing TO BE VALIDATED |
 | Tactile transport/firmware | `origin/tactileESP32` (`84e942c`): C++ sender, protocol, hotspot scripts, SG90 firmware, PlatformIO build/flash, laptop-side `tactile_link.py` fed by the Pi bridge | IMPLEMENTED ON BRANCH; not merged into `main`; log records host builds/tests, not flashed hardware |
 | Guardian Voice | `companion/guardian/`: agent configured and smoke-tested on a laptop; `GuardianController`, push-to-talk `GuardianAudio`, `SmsGate` with a fake sender | IMPLEMENTED ON BRANCH: `feature/guardian` (`e31e770`), wired into the on-device companion; tested live on a Mac; Pi preflight, observation trail and `TwilioSender` added after (mock-tested, no Twilio account); not run on the Pi |
 | Local help | `status_text()` status and last landmark on its own worker; locator removed from voice code | IMPLEMENTED on `feature/guardian`; offline Pi run TO BE VALIDATED |
@@ -288,10 +288,10 @@ tested mounting angles and supported hazard families. Owner: unassigned.
 If one mount cannot cover both floor and head hazards, document the limitation
 and compare remounting/additional sensing before enabling unsupported features.
 
-- **IMPLEMENTED IN WORKING TREE:** local aligned-depth geometry independent of
+- **IMPLEMENTED (`5fb2864`):** local aligned-depth geometry independent of
   SLAM/cloud, with explicit measured mount configuration and IMU posture guards.
   Calibration/coverage flags remain false until measured; no invented wearer dimensions.
-- **IMPLEMENTED IN WORKING TREE:** timestamped events with direction, severity,
+- **IMPLEMENTED (`5fb2864`):** timestamped events with direction, severity,
   expiry and sensor health; strict consumer, local phrases and guidance inhibition.
 - **IMPLEMENTED / HARDWARE TO BE VALIDATED:** the feature spec defines a versioned
   JSON snapshot on `/hazard_warning`, bounded local audio arbitration,
@@ -473,12 +473,12 @@ scheduling are **TO BE DECIDED** before work starts.
 1. **Integrate existing work and hardware.** IN PROGRESS on `integeration`:
    `main` and a voice companion snapshot are combined, voice drives the backpack
    guidance gate, and ICP + IMU is the launcher's odometry choice. Remaining:
-   re-apply the newer voice commits, merge `tactileESP32` and write the
-   direction-to-tactile bridge, verify the IMU transform, assemble hardware and
+   integrate the newer Guardian and hazard commits, merge `tactileESP32` with
+   its existing direction-to-tactile bridge, verify the IMU transform, assemble hardware and
    establish concurrent camera/audio/hotspot/internet operation on the Pi.
 2. **Complete audio warnings and failure handling.** Stage A geometry,
    all-state audio preemption, expiry and audible health signals are implemented
-   in the `feature/guardian` working tree, with synthetic checks. Remaining:
+   on `feature/guardian` (`5fb2864`), with synthetic checks. Remaining:
    complete the camera coverage survey, measured mount configuration and Pi
    full-load acceptance tests. Tactile hazard patterns stay exploratory.
    Verify camera/pose/planner loss without stale guidance; include either-hand
@@ -515,7 +515,14 @@ are development observations, not full-system guarantees. A 1024-byte PCM chunk
 containing ~23 ms of audio does not establish 23 ms playback-start latency;
 image compression time is not upload time.
 
-Review evidence (17:45): the Python suite ran 75 tests with 6 errors, all in
+Latest hazard software evidence (`5fb2864`): 140 companion Python tests,
+seven browser-help tests, native/ROS C++ geometry checks and 12 synthetic ROS
+pipeline checks passed. The hazard and changed direction nodes compile in ROS
+Jazzy arm64; the full mapper-package build was not completed in the minimal
+test image because OpenCV development files were absent. Pi acceptance remains
+open. These results precede ongoing multilingual edits; see `log.md`.
+
+Historical review evidence (17:45): the Python suite ran 75 tests with 6 errors, all in
 hazard tests whose fake lacks the `current` attribute that the in-progress
 Guardian wiring reads; the working tree was being edited during the run. Seven
 browser-help tests passed. These are software checks, not ROS integration,

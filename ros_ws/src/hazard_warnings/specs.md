@@ -1,6 +1,6 @@
 # Voice warnings for hazards — implementation plan
 
-Status: Stage A software implemented in the `feature/guardian` working tree
+Status: Stage A software committed on `feature/guardian` as `5fb2864`
 on 2026-09-26: full-resolution depth geometry, versioned snapshots, strict
 consumer, resident phrase bank, sensor-health handling and movement inhibition.
 Geometry/policy tests and the synthetic ROS pipeline pass; the node and changed
@@ -109,7 +109,9 @@ all-state interruption and exclusive audio ownership are required work.
   Cooldowns begin only after audio starts; expired queued clips can be retried
   from fresh evidence. Audio generations invalidate even pending HTTP-open and
   local-fallback work. Buttons cannot mute hazard/fault playback.
-- Three healthy snapshots allow recovery. Fault announcements repeat no faster
+- Health transport delay consumes the 500 ms heartbeat lifetime; a delayed
+  receipt never grants another full interval. Three healthy snapshots allow recovery.
+  Fault announcements repeat no faster
   than 15 s; a quiet health tone is offered after 15 s without hazard/status audio.
   Output-stream loss inhibits guidance and stops the supervised companion run.
   Independent tactile fault signaling remains unimplemented.
@@ -315,7 +317,8 @@ Initial tuning values below are **proposed test settings, not measured limits**:
 | Input age rejection | 150 ms; do not reuse companion snapshot's 2 s limit |
 | Label association | Capture skew ≤50 ms and label age ≤150 ms, otherwise generic |
 | Event expiry | 250 ms from observation; recheck before starting audio |
-| Producer heartbeat loss | 500 ms without a valid snapshot → unavailable |
+| Producer heartbeat loss | 500 ms from the latest valid publication, accounting for transport age and monotonic elapsed time → unavailable |
+| Companion/audio permission loss | Direction node stops publishing after 500 ms without a fresh true `/hazard/guidance_permitted` lease; downstream command expiry remains required |
 | Forward caution / urgent band | Start 1.5 m / 0.8 m, subject to coverage and speed gate |
 | Body lateral margin | Start 0.15 m per side, then measure wearer/cane needs |
 | Clear hysteresis | Five valid observed frames outside threshold + 0.2 m |
@@ -387,12 +390,12 @@ replace stale entries; never speak a FIFO backlog of obsolete warnings.
 | Help/status | Interrupt lower-priority audio; play warning; a new double tap requests status again |
 | Guardian Voice session | Revoke Guardian output generation and drop late agent chunks; force mic stream to silence until the warning ends; play warning; cancel any pending SMS draft; Guardian may acknowledge afterward, at most once per 30 s ([guardian spec](../../../companion/guardian/specs.md) §4.2) |
 
-Proposed alert policy: button gestures should not mute an active urgent hazard;
-validate this exception to ordinary speech cancellation during hazard testing. After the alert,
+Implemented alert policy: button gestures do not mute hazard/fault playback;
+button/working earcons cannot mask it. Validate comprehension on the demo
+hardware. After the alert,
 repeating an answer is allowed only if priority/health policy permits it; the
 decided gesture is a single short press while idle. A tap during ordinary
-thinking/speaking cancels without automatic repeat; this does not finalize the
-separate urgent-hazard muting policy.
+thinking/speaking cancels without automatic repeat.
 Use state messages: local startup self-test, “Hazard warnings ready,” fault
 announcement on transition, and “Hazard sensing restored” after stable recovery.
 An unobtrusive health tone every 15 s while otherwise quiet distinguishes
@@ -455,6 +458,20 @@ failed budget as achieved.
 
 Roles below are workstreams, not assigned teammates. Estimates are planning
 ranges and depend on hardware access; Stage C is not assumed to fit the event.
+
+Current completion evidence (`5fb2864`):
+
+| Milestone | Software status | Remaining acceptance |
+| --- | --- | --- |
+| 0 — Calibration | Configuration and blank `coverage.md` record exist; defaults fail closed | Actual mount/units/coverage measurements and baseline Pi load |
+| 1 — Contract | Strict parser, timestamp/session guards, bounded snapshots and all-state handling tested | Live ROS capture clocks and real output timing |
+| 2 — Audio | Resident phrase bank, priority/generation cancellation and stale-before-playback checks tested | Speaker audibility, listener comprehension and Pi onset |
+| 3 — Geometry | C++ detector builds; synthetic thin/noise/invalid-depth and policy tests pass | Real shelf/panel/branch-like fixtures, difficult surfaces and misses |
+| 4 — Integration | Launch and expiring guidance permission wired; 12 synthetic ROS checks pass | Combined Pi/tactile run and full-load/fault acceptance |
+| 5–7 — Semantics, passage and floor stages | Not implemented | Separate models, geometry and hardware gates |
+
+The table below retains the original work breakdown and estimates; software
+completion does not mean its hardware exit gate has passed.
 
 | Order | Work / concrete files | Exit gate | Estimate |
 | --- | --- | --- | --- |

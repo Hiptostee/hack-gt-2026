@@ -20,8 +20,8 @@ and unit-tested; Pi button timing is not yet validated. Audio hardware
 options remain open, with an open speaker likely for the demo and bone conduction
 the future product direction. Planned hazard behavior is not implemented merely
 because it appears in this spec. Stage A geometry, strict hazard snapshots,
-local phrases and an expiring guidance permission are now implemented in the
-working tree; calibration, coverage and Pi performance are not verified.
+local phrases and an expiring guidance permission are committed in `5fb2864`;
+calibration, coverage and Pi performance are not verified.
 
 --- 
 
@@ -69,7 +69,8 @@ documents should refer to this shared decision record.
 | Double short press | Local help/status on its own worker, after the tap window | DECIDED by user: local spoken help/status, no internet required and no contact action. IMPLEMENTED |
 | Another double tap | Local help/status again | Locator, arming state and locator prompts removed |
 | Triple short press | Guardian entry point; announces that Guardian isn't available yet | DECIDED by user: enter Guardian Voice (`guardian/specs.md` §2). Taps resolve `TAP_WINDOW` (0.5 s) after the last tap, so double-tap help waits for that window; validate the delay on hardware |
-| Hazard detected | Local tone + "Obstacle ahead." interrupts every state (hazard spec §7) | Automatic; no button activation needed |
+| Fresh supported obstacle | Local height/direction phrase; urgent alerts add a tone and "Stop."; interrupts every state (hazard spec §7) | Automatic; no button activation needed |
+| Required sensing unavailable | Local fault phrase; guidance inhibited | Unmeasured calibration, stale/missing producer, depth or body-pose fault |
 
 **DECIDED:** a single short press while idle repeats the last answer; it does
 not capture a new scene or ask Gemini again. With no previous answer, announce
@@ -337,7 +338,8 @@ and must never block them.
 - After a preemption, do not silently resume mid-sentence. Play a short tone;
   once idle and warnings allow it, a single short press repeats the last answer.
   A tap during ordinary thinking/speaking cancels without automatic repeat (§2).
-  Urgent-hazard muting policy remains a separate interaction to review.
+  Buttons do not mute hazard/fault playback, and earcons cannot mask it.
+  This policy still needs listener validation on the demo hardware.
 - The product target is **audio and tactile hazard feedback**. Complete and
   validate local audio first; tactile hazard patterns are brainstorming only.
   Follow `../ros_ws/src/hazard_warnings/specs.md` for audio priority, expiry and

@@ -217,6 +217,11 @@ response is dropped on arrival — it must never regain the speaker.
 
 ### 4.2 Hazard interaction
 
+Stage A integration is committed in `5fb2864`. The companion accepts only
+valid fresh version-1 hazard snapshots, and critical sensing-fault speech uses
+the same Guardian interruption path. Geometry, contract and synthetic ROS
+checks pass; the actual Pi/audio acceptance criteria below remain unverified.
+
 Follows the hazard spec's audio owner priorities: hazard audio always outranks
 Guardian speech. On a warning:
 
@@ -411,12 +416,17 @@ and add a trial prefix; verify setup in the spike.
   opens its own output stream.
 - **Hazard warnings:** unaffected and always outrank Guardian (§4.2). The
   hazard spec's state table includes a Guardian row.
-- **Navigation / tactile:** Guardian sends no movement cues. If a navigation
-  inhibit exists when Guardian lands, Guardian asserts it for the session;
-  leaving Guardian does not resume navigation — fresh valid guidance is
-  required. Hazard sensing never pauses. If no inhibit exists yet, nothing is
-  claimed.
-- **ROS stack:** read-only camera access; no ROS behavior changes.
+- **Navigation / tactile:** Guardian sends no movement cues. The hazard
+  permission now inhibits guidance for urgent obstacles, required sensing faults,
+  missing output or companion loss. **Still to implement:** pausing navigation
+  for the entire Guardian session on entry and requiring a fresh navigation
+  request after exit. Guardian entry currently does not assert that pause;
+  do not describe the hazard permission as implementing it. Hazard sensing
+  never pauses.
+- **ROS stack:** Guardian itself only reads camera state. The surrounding
+  companion publishes `/hazard/guidance_permitted`, with a 500 ms lifetime
+  enforced by the direction node; output failure ends the supervised companion
+  and Guardian session. Downstream tactile command expiry still applies.
 
 ---
 

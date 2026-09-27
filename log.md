@@ -6,10 +6,37 @@ are the things that get lost.
 
 ---
 
+## 2026-09-26 — Hazard documentation reconciled after commit
+
+Stage A hazard implementation is now committed on `feature/guardian` as
+`5fb2864` (`feat(hazards): add local depth warnings and guidance inhibition`).
+Updated the canonical plan and feature specs to distinguish implemented
+software, recorded synthetic test evidence, and outstanding Pi acceptance.
+No new hardware verification or test run is implied by this documentation pass.
+
+Clarified the two separate lifetimes: hazard evidence expires 250 ms after
+capture; sensing health and the companion's guidance permission expire after
+500 ms, with transport delay consuming the sensing-health lifetime. The
+direction node stops publishing; downstream tactile consumers must still
+expire their last command. The HTTP/browser fallback supplies no permission.
+
+Guardian's hazard/fault interruption is wired, including microphone muting
+and SMS cancellation. Session-wide navigation pause on Guardian entry remains
+unwired: the new hazard permission is not automatically false merely because
+Guardian is active. Recorded this gap explicitly rather than claiming that
+the existence of an inhibit implements the separate interaction requirement.
+
+The hazard spec now lists completion evidence per implementation milestone;
+calibration/coverage, Pi warning onset and concurrent-load tests remain open.
+Docs-only changes; concurrent multilingual and Guardian edits are in progress.
+
+---
+
 ## 2026-09-26 — Stage A hazard detector and fail-closed voice integration
 
-User requested implementation of the missing hazard pipeline. Changes are in
-the `feature/guardian` working tree; no commits, merges or pushes were run.
+User requested implementation of the missing hazard pipeline. Delivered in the
+`feature/guardian` working tree, subsequently committed as `5fb2864`. The agent
+did not run commits, merges or pushes.
 
 **Built:**
 - `ros_ws/src/hazard_warnings`: a C++17 package consuming the existing aligned
