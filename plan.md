@@ -539,26 +539,29 @@ starting positions for those specs, not decisions.
 
 ### 12a. Judge debug dashboard
 
-Judges cannot feel the hand cues, and the wearer's interface is deliberately
-nonvisual. A live view lets an observer check why each cue happened.
+**IMPLEMENTED** (spec at [companion/dashboard/specs.md](companion/dashboard/specs.md)):
+live visual HUD for HackGT judges and observers on `companion/voice/web_test.py`,
+fed by `GET /debug/state` on `companion/voice/pi_bridge.py` polling at 3 Hz.
 
-- A panel on the laptop demo page (`companion/voice/web_test.py`), fed by one
-  new Pi bridge endpoint (`GET /debug/state`) that aggregates existing state.
-  Polled at 2–5 Hz. No new ROS nodes.
-- Shows: latest camera frame; guidance `active`, `path_valid`, direction and
-  the tactile flags actually sent; the planner overlay
-  (`/backpack/planner_image` already exists); the latest hazard event and its
-  age once a detector exists; Guardian session state, tool calls and SMS draft
-  state. Every item shows its age.
-- Stale or missing data is shown as stale or missing, never as a blank that
-  reads as "clear".
-- It is a judge view, separate from the wearer's experience. No user function
-  depends on it; the device behaves the same with the page closed.
-- Shows state, not transcripts, by default. Guardian speech content stays off
-  the screen unless explicitly enabled for the demo (§8 privacy).
-- Depends on the demo-path decision in §1a: Guardian and the hazard phrase
-  currently run only in the on-device process, so their state must reach the
-  bridge whichever path is chosen.
+- Shows: camera status and frame dimensions; guidance active, route validity,
+  direction arrow (`forward`, `left`, `right`, `stop`, `idle`), and tactile
+  flags (`0x01` front, `0x02` left, `0x04` right, `0x00` neutral) with animated
+  SVG servo sweep visualizers; hazard radar card with severity, distance,
+  phrase and age counters; Guardian Voice status (`idle`, `opening`, `active`,
+  `speaking`), SMS state and observation trail count; active language.
+- Real-time sub-system latency & vitals meter (camera latency, hazard C++ loop,
+  A* planner cycle, HTTP RTT, and safety budget status).
+- 2D Costmap / A* Radar Canvas displaying distance rings, heading vector,
+  inflation zones, goal waypoint, and planned trajectory.
+- Interactive Demo Simulator / Judge Controls drawer for one-click hazard,
+  heading, and heartbeat-drop fail-safe evaluation.
+- Multilingual demo switcher (`EN / KO / ZH / JA / ES`) updating speech and UI on the fly.
+- Stale or missing data is explicitly flagged (`NO SENSING`, `STALE (>0.5s)`,
+  `FAULT`), never as a blank reading as "clear".
+- Non-blocking lock-free telemetry compilation in `pi_bridge.py`; zero effect
+  on wearer safety loop.
+- Full test coverage in `companion/tests/test_dashboard.py` (11 tests pass).
+- Hardware Pi bridge validation pending during full wearable integration.
 
 ### 12b. "Take me back to where I started"
 

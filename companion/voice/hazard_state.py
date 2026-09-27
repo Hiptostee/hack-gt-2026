@@ -175,3 +175,25 @@ class HazardState:
                 self.spoken.pop("health:fault", None)
             elif alert.phrase == "unavailable":
                 self.reported_health = "fault"
+
+    def snapshot(self, mono):
+        with self.lock:
+            has_received = not math.isinf(self.received)
+            live = (mono - self.received < HEARTBEAT_S) if has_received else False
+            age_s = round(mono - self.received, 3) if has_received else None
+            active_alerts = [a for a in self.alerts if a.expires_at > mono] if live else []
+            urgent = any(a.priority == 0 for a in active_alerts)
+            caution = any(a.priority == 2 for a in active_alerts)
+            severity = "urgent" if urgent else ("caution" if caution else "none")
+            health = self.health.copy() if self.health else {}
+            phrase = active_alerts[0].phrase if active_alerts else None
+            return {
+                "available": live and (self.health.get("depth") == "ok"),
+                "severity": severity,
+                "urgent": urgent,
+                "caution": caution,
+                "direction": "ahead" if active_alerts else "clear",
+                "phrase": phrase,
+                "sensor_health": self.health.get("depth", "unknown") if self.health else "unknown",
+                "age_s": age_s,
+            }

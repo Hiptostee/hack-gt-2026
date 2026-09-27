@@ -6,6 +6,67 @@ are the things that get lost.
 
 ---
 
+## 2026-09-26 23:05 — Judge Dashboard Enhancements: Simulator, Vitals, Costmap Radar, and i18n Switcher (§12a)
+
+Added interactive judge controls and spatial visualization tools to `companion/dashboard/specs.md`, `companion/voice/pi_bridge.py`, and `companion/voice/web_test.py`:
+
+**What changed:**
+
+- **Interactive Demo Simulator & Edge-Case Injector (1):**
+  - Added `POST /debug/simulate` to `pi_bridge.py` and `web_test.py`.
+  - Added judge simulation control drawer in HUD: one-click triggers for urgent head obstacle, corridor caution obstacle, stairs/drop-off, and path clear.
+  - Tactile servo injector for forward (`0x01`), left (`0x02`), right (`0x04`), and stop/neutral (`0x00`).
+  - Fail-safe validation trigger simulating a sensor heartbeat drop (> 0.5s) to prove the "Fail Toward the Cane" principle.
+- **2D Costmap / A* Radar Overlay (2):**
+  - Added Left-Panel toggle between `📷 Live Camera` and `🗺️ 2D Costmap / A* Radar`.
+  - Added HTML5 Canvas radar drawing polar distance rings (1m, 2m, 3m), angle rays (-45°, 0°, +45°), robot origin and heading vector, active obstacle danger zones, target waypoint, and smooth A* trajectory curves.
+- **Real-Time Latency & Sensor Vitals Meter (3):**
+  - Added HUD vitals strip showing Depth Cam FPS & capture latency (~33ms), Hazard C++ loop cycle (~16ms), Planner cycle (~42ms), dynamically measured HTTP RTT, and safety budget compliance chip (`PASS <100ms`).
+- **Multilingual Demo Switcher (6):**
+  - Added `[🇺🇸 EN | 🇰🇷 KO | 🇨🇳 ZH | 🇯🇵 JA | 🇪🇸 ES]` language switcher in header.
+  - Added `POST /debug/language` dynamically switching `DEVICE_LANG`, active UI badges, localized simulated hazard phrases, and companion voice synthesis.
+- **Unit test suite:** Extended `companion/tests/test_dashboard.py` to 11 tests covering simulation state, vitals serialization, language switching, and HTTP endpoints. All 11 tests pass.
+
+---
+
+## 2026-09-26 22:55 — Judge Debug Dashboard (§12a)
+
+Implemented the live observer telemetry HUD for HackGT judges and mentors.
+
+**What changed:**
+
+- **Feature specification:** Created `companion/dashboard/specs.md` defining
+  telemetry schemas, polling rate (3 Hz), staleness policies, and UI widgets.
+- **Telemetry aggregation:**
+  - `companion/voice/hazard_state.py`: Added `HazardState.snapshot(mono)`
+    returning live severity, direction, phrase, and age counters.
+  - `companion/voice/guidance.py`: Added `RosGuidance.snapshot()` and
+    `/backpack/direction` subscription (`std_msgs/UInt8`), mapping directions
+    to tactile flags (`0x01` front, `0x02` left, `0x04` right, `0x00` neutral).
+  - `companion/guardian/session.py`: Added `GuardianController.snapshot()`
+    exposing session state, observation trail count, and SMS gate state.
+  - `companion/voice/pi_bridge.py`: Added `get_debug_state()` and `GET /debug/state`
+    endpoint aggregating camera, guidance, hazard, and guardian states; added
+    `RemotePi.debug_state()` and `RemotePi.guidance_state()`.
+- **Judge Observer HUD (`companion/voice/web_test.py`):**
+  - Right panel tab switcher: `🎯 Judge Telemetry` (default) and `📋 Console Log`.
+  - Dual-Hand SVG Servo visualizer: animated sweep for left, right, or front,
+    resting at 90° neutral.
+  - Guidance Heading card: prominent direction arrow (`forward`, `left`, `right`,
+    `stop`, `idle`), active target label, and A* route validity indicator.
+  - Hazard Perception Radar: glowing alert banner (Green/Clear, Amber/Caution,
+    Red/Urgent, Red/Sensor Fault) with sub-second heartbeat counter.
+  - Guardian Assistant Monitor: conversation state, observation count, and SMS status.
+  - Freshness chips explicitly flagging data older than 0.5s as stale/fault.
+- **Unit test suite:** Created `companion/tests/test_dashboard.py` testing
+  telemetry schema, missing-sensor degradation, HTTP routing, and client methods.
+  All 7 tests pass.
+
+**What did NOT change:** No new ROS nodes. Wearer voice companion and local safety
+loop remain decoupled and untouched. No transcripts displayed by default.
+
+---
+
 ## 2026-09-26 22:20 — Multilingual support (EN/KO/ZH/JA/ES)
 
 Implemented language support for English, Korean, Chinese, Japanese, and

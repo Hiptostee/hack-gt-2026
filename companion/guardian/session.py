@@ -131,6 +131,26 @@ class GuardianController:
             sender, "no texting")
         return f"agent {self.agent_id}, {texting}"
 
+    def snapshot(self):
+        with self.lock:
+            state = self.state
+            sms_state = getattr(self.sms, "state", "idle") if self.sms else "idle"
+            last_obs = getattr(self.session, "last_observation", None) if self.session else None
+            trail = getattr(self.session, "trail", []) if self.session else []
+            is_speaking = False
+            if self.voice and hasattr(self.voice, "is_playing"):
+                try:
+                    is_speaking = self.voice.is_playing()
+                except Exception:
+                    pass
+            return {
+                "state": state,
+                "is_speaking": is_speaking,
+                "sms_state": sms_state,
+                "last_observation": last_obs,
+                "trail_count": len(trail) if trail else 0,
+            }
+
     # ---- entry -----------------------------------------------------------
 
     def open(self):
