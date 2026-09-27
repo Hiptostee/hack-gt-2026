@@ -4,8 +4,8 @@
 
 The `feature/guardian` branch combines the named-target work from
 `feature/navigate-target` (`b04eb8d`) with Guardian (`3e24163`), committed and pushed
-as `ffaa730`; review fixes follow in the working tree. This is a file-level
-integration; main is unchanged. The branch snapshots below
+as `ffaa730`; review fixes were committed as `d2812dd`, reconciled as `a8773fd`
+and fast-forwarded/pushed to main. This is a file-level integration. The branch snapshots below
 are historical and are superseded by this section for laptop demo usage.
 
 The committed scope decision is one stationary D415 scene, one named chair and
@@ -25,7 +25,13 @@ as a stationary preview, but physical direction permission is not fabricated.
 ESP32 hardware is not required; the separate tactile branch is outside this
 integration. Demo SMS is simulated. Dashboard timing constants were removed.
 
-Software acceptance: 212 Python tests and 10 Node tests pass; the dashboard's inline
+The laptop demo now includes opt-in local obstacle-warning speech from existing
+Pi hazard telemetry, with expiring evidence, repeat limits, urgent audio
+interruption and explicit simulated-warning announcements. Stop mutes warnings.
+No Gemini/ElevenLabs call or movement permission is involved. Default uncalibrated
+sensing remains unavailable; see the runbook's obstacle-warning segment.
+
+Software acceptance: 213 Python tests and 22 Node tests pass; the dashboard's inline
 and external scripts parse. Chrome verified Find, highlighted candidate, Guide,
 Stop and the radar switch using simulated model/planner responses. ARM64 Ubuntu
 24.04/Jazzy compilation, synthetic ROS target/hazard tests, and installed bridge

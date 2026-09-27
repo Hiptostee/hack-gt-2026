@@ -62,6 +62,21 @@ class FakeGuardian:
 
 
 class TestHazardStateSnapshot(unittest.TestCase):
+    def test_live_warning_has_localized_phrase_and_remaining_lifetime(self):
+        hs = HazardState()
+        hs.received = 10
+        hs.health = {"depth": "ok", "body_pose": "ok"}
+        hs.alerts = [Alert("one", "urgent:head:left", 0, 10.25, 2)]
+        with patch.dict('os.environ', {"DEVICE_LANG": "en"}):
+            snap = hs.snapshot(10.1)
+        self.assertEqual(snap['phrase'], 'Stop. Head-height obstacle ahead, left.')
+        self.assertEqual(snap['direction'], 'left')
+        self.assertGreater(snap['warning_ttl_ms'], 140)
+        self.assertLessEqual(snap['warning_ttl_ms'], 150)
+        self.assertIsNone(hs.snapshot(10.3)['phrase'])
+        hs.health['body_pose'] = 'unavailable'
+        self.assertFalse(hs.snapshot(10.3)['available'])
+
     def test_empty_snapshot(self):
         hs = HazardState()
         snap = hs.snapshot(10.0)
@@ -224,6 +239,7 @@ class TestSimulationAndLanguage(unittest.TestCase):
         apply_simulation(server, "fault", "heartbeat_drop")
         self.assertFalse(server.simulation["hazard"]["available"])
         self.assertEqual(server.simulation["hazard"]["sensor_health"], "fault")
+        self.assertTrue(get_debug_state(server)['hazard']['simulated'])
 
         # Reset
         res_reset = apply_simulation(server, "reset", "")

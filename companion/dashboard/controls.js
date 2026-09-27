@@ -6,8 +6,52 @@ let guardianState = 'closed', operatorPolling = false, noticeId = 0;
 let selectionId = null, selectedLabel = '', selectionDeadline = 0;
 let pendingRequest = null, recordCap = null;
 let guardianPress = Promise.resolve();
+let warningSpeaking = false, warningSpeechEpoch = 0;
+
+function warningAudioStatus() {
+  $('warning-audio').textContent = obstacleWarnings.enabled ? 'Mute obstacle warnings' : 'Enable obstacle warnings';
+  $('warning-audio').setAttribute('aria-pressed', String(obstacleWarnings.enabled));
+  if (!obstacleWarnings.enabled) $('warning-audio-state').textContent = 'Warning audio off';
+}
+
+const obstacleWarnings = new ObstacleWarningMonitor(async (warning, current) => {
+  const occupied = operatorBusy || pressed || guardianState !== 'closed' || warningSpeaking ||
+    activeWebAudioSource || !audioPlayer.paused || window.speechSynthesis.speaking;
+  if ((warning.simulated || warning.priority === 2) && occupied) return false;
+  if (!warning.simulated && warning.priority <= 1) {
+    // Stop invalidates pending replies and releases Guardian's native audio.
+    const stopping = stopOperator({silent: true, keepWarnings: true});
+    if (warning.priority === 0) playEarcon('error');
+    await stopping;
+  }
+  if (!current() || guardianState !== 'closed') return false;
+  silenceOperator();
+  warningSpeaking = true;
+  const token = ++warningSpeechEpoch;
+  const utterance = new SpeechSynthesisUtterance(warning.text);
+  utterance.lang = ({en:'en-US',ko:'ko-KR',zh:'zh-CN',ja:'ja-JP',es:'es-ES'})[(lastTelemetry || {}).device_lang || 'en'];
+  utterance.rate = 1;
+  const finish = () => {
+    if (token !== warningSpeechEpoch) return;
+    warningSpeaking = false;
+    updateOperatorControls();
+  };
+  utterance.onend = finish;
+  utterance.onerror = event => {
+    if (token !== warningSpeechEpoch) return;
+    finish();
+    $('warning-audio-state').textContent = 'Warning speech unavailable: ' + event.error;
+  };
+  $('warning-audio-state').textContent = warning.text;
+  window.speechSynthesis.speak(utterance);
+  log(warning.text, warning.priority <= 1 ? 'warn' : 'info');
+  updateOperatorControls();
+  return true;
+});
 
 function silenceOperator() {
+  ++warningSpeechEpoch;
+  warningSpeaking = false;
   if (activeWebAudioSource) {
     try { activeWebAudioSource.stop(); } catch (_) {}
     activeWebAudioSource = null;
@@ -18,7 +62,7 @@ function silenceOperator() {
 
 function operatorMessage(text, speak = false) {
   statusEl.textContent = text;
-  if (speak && text) { silenceOperator(); speakFallback(text); }
+  if (speak && text && !warningSpeaking) { silenceOperator(); speakFallback(text); }
 }
 
 function workflow(phase, text) {
@@ -39,26 +83,26 @@ function clearSelection() {
 
 function updateOperatorControls() {
   const guardian = guardianState !== 'closed';
-  const locked = operatorBusy || guardian || pressed;
+  const locked = operatorBusy || guardian || pressed || warningSpeaking;
   for (const id of ['find-object', 'object-query', 'ask-typed', 'typed-question']) $(id).disabled = locked;
   $('guide-object').disabled = locked || !selectionId || !dashboardConfig.guidance;
   $('guide-object').title = dashboardConfig.guidance ? 'Capture a fresh view and request a route' : 'Connect the Pi for depth routing';
-  $('guardian-open').disabled = operatorBusy || guardian || pressed;
+  $('guardian-open').disabled = operatorBusy || guardian || pressed || warningSpeaking;
   $('guardian-end').disabled = !guardian;
   for (const id of ['repeat-answer', 'local-status']) $(id).disabled = locked;
   replayBtn.disabled = locked;
-  btnSoundTest.disabled = guardian;
-  audioPlayer.controls = !guardian;
-  $('enable-mic').disabled = guardian || operatorBusy;
-  btn.disabled = operatorBusy || (guardian ? guardianState !== 'active' : !mediaStream);
+  btnSoundTest.disabled = guardian || warningSpeaking;
+  audioPlayer.controls = !guardian && !warningSpeaking;
+  $('enable-mic').disabled = guardian || operatorBusy || warningSpeaking;
+  btn.disabled = operatorBusy || warningSpeaking || (guardian ? guardianState !== 'active' : !mediaStream);
   btn.title = guardian ? 'Hold to talk to Guardian; release to send' : 'Hold to ask about the scene; release to send';
   $('operator-hint').textContent = guardian ? 'Guardian: hold the microphone button or Space for at least 0.6 seconds, then speak.' : 'Hold the microphone button or Space to talk. Release to send.';
   $('guardian-help').textContent = guardian ? `Guardian ${guardianState}. Use the talk button on the left. Texting is simulated.` : 'Uses the laptop microphone and speakers. Text messages are simulated.';
 }
 
 async function operatorAPI(path, body) {
-  const response = await fetch(path, body === undefined ? {cache: 'no-store'} : {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  const response = await fetch(path, body === undefined ? {cache: 'no-store', signal: AbortSignal.timeout(8000)} : {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(8000)
   });
   if (!response.ok) throw Error('Beacon server unavailable.');
   const data = await response.json();
@@ -96,7 +140,7 @@ async function pollOperator() {
     $('guard-obs').textContent = data.trail.length + ' SAVED';
     updateOperatorControls();
   } catch (error) {
-    silenceOperator();
+    if (!warningSpeaking) silenceOperator();
     operatorMessage(error.message);
   } finally { operatorPolling = false; }
 }
@@ -193,7 +237,8 @@ function cancelRecording() {
   timerEl.textContent = '';
 }
 
-async function stopOperator() {
+async function stopOperator({silent = false, keepWarnings = false} = {}) {
+  if (!keepWarnings) { obstacleWarnings.disable(); warningAudioStatus(); }
   ++requestEpoch;
   if (pendingRequest) pendingRequest.abort();
   silenceOperator();
@@ -203,8 +248,8 @@ async function stopOperator() {
   operatorBusy = true;
   btn.classList.remove('think');
   updateOperatorControls();
-  try { await operatorControl('stop'); }
-  catch (error) { operatorMessage(error.message, true); }
+  try { await operatorControl('stop', !silent); }
+  catch (error) { operatorMessage(error.message, !silent); }
   finally { operatorBusy = false; updateOperatorControls(); }
 }
 
@@ -247,6 +292,19 @@ $('guide-object').onclick = () => { if (selectionId) submitOperator('/guide', {s
 $('question-form').onsubmit = event => { event.preventDefault(); submitOperator('/ask', {text: $('typed-question').value}); };
 $('stop-all').onclick = $('stop-guidance').onclick = stopOperator;
 $('enable-mic').onclick = enableMic;
+$('warning-audio').onclick = () => {
+  if (obstacleWarnings.enabled) {
+    obstacleWarnings.disable(); silenceOperator(); updateOperatorControls();
+  } else if ('speechSynthesis' in window) {
+    getAudioCtx(); obstacleWarnings.enable();
+    $('warning-audio-state').textContent = 'Waiting for fresh Pi warning telemetry…';
+    pollDebugState();
+  } else {
+    $('warning-audio-state').textContent = 'Browser speech is unavailable; visual warnings remain on.';
+    return;
+  }
+  warningAudioStatus();
+};
 for (const [id, action] of [['repeat-answer', 'repeat'], ['local-status', 'status']]) {
   $(id).onclick = () => operatorControl(action).catch(error => operatorMessage(error.message, true));
 }
@@ -276,6 +334,6 @@ window.addEventListener('pagehide', () => {
   silenceOperator();
   navigator.sendBeacon('/demo/control', new Blob([JSON.stringify({action: 'stop'})], {type: 'application/json'}));
 });
-audioPlayer.addEventListener('play', () => { if (guardianState !== 'closed') audioPlayer.pause(); });
+audioPlayer.addEventListener('play', () => { if (guardianState !== 'closed' || warningSpeaking) audioPlayer.pause(); });
 setInterval(pollOperator, 750);
 init();

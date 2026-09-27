@@ -17,6 +17,9 @@ The dashboard is `http://localhost:8080/` (`/demo` opens the same page). Use its
 **Find an object & guide** card: Find → inspect the highlighted object → Guide.
 Guide captures a fresh frame and identifies the object again before routing.
 Laptop voice, typed questions, Guardian, radar and judge controls share this page.
+Click **Enable obstacle warnings** for local laptop warning speech. The judge
+hazard buttons announce **Simulated warning**; live warnings require a calibrated
+Pi detector. Stop mutes warning audio. See the runbook's warning demo sequence.
 The launcher reads `.env`; Docker RViz is
 optional (`--viewer`). Rebuild the Pi from this source first. No GPIO button is
 required. Live movement remains inhibited without verified hazard/audio health.

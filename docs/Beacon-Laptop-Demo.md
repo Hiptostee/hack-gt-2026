@@ -131,6 +131,32 @@ owns the demo; closing it or losing its heartbeat stops the session.
 
 ## Rehearse once, then freeze the setup
 
+### Obstacle-warning segment
+
+1. Open Judge Telemetry. Click **Head Obstacle** or **Side Obstacle**, then
+   **Enable obstacle warnings** in the laptop controls. Expect the banner and
+   local speaker phrase beginning **“Simulated warning.”** No cloud call is used.
+2. Click **Stop · Esc** (or Mute obstacle warnings) to stop the repeated speech.
+   The visual simulation stays visible until **Reset Live** is clicked.
+3. For actual depth alerts, click **Reset Live** and enable warning audio again.
+   The Pi must be running this updated bridge, which supplies translated phrases
+   and the remaining evidence lifetime. Old bridge payloads cannot produce live
+   obstacle speech; rebuild/restart both ends after updating.
+4. Default mount calibration is incomplete, so expect **“Hazard sensing
+   unavailable. Use your cane.”** until the existing measured calibration and
+   coverage requirements are met. Do not present the simulation as live sensing.
+5. Live urgent/unavailable sensing stops pending scene work and ends Guardian
+   before warning speech. Disable warning audio before the Guardian judging
+   segment while the detector is unavailable. Caution and simulated speech skip
+   occupied audio; expired alerts are never played later.
+
+These are laptop/browser warnings over HTTP. They do not replace the on-device
+real-time warning loop, authorize movement, recognize object names continuously,
+or establish floor/head-height coverage. The existing Stairs/Drop button is a
+simulated illustration; the live detector does not implement drop-off detection.
+
+### Full demo checks
+
 1. Verify a **live changing D415 image** and a timestamped frame in preflight.
 2. Ask the scene question. Confirm intelligible laptop audio and a correct,
    observed sign in the history. Do not claim a landmark if the model omitted it.
@@ -167,11 +193,12 @@ presents hardcoded numbers as timing measurements.
 
 ## Verification recorded in this integration
 
-- 212 Python tests pass, including Find without routing, fresh-frame Guide,
+- 213 Python tests pass, including warning phrase/lifetime metadata, Find without routing, fresh-frame Guide,
   missing/expired/stopped selections, HTTP target transport, shared history, typed
   payloads, cancellation races, missing live camera, browser heartbeat, Guardian
   recovery, rotation codes and permission expiry.
-- 10 Node tests pass, covering browser help plus dashboard rotation, missing
+- 22 Node tests pass, covering warning freshness, repeats, audio handoff, simulation
+  isolation and intentional Stop, plus browser help, dashboard rotation, missing
   camera/measurement data and stale telemetry rendering. The dashboard's inline script and
   external operator controls pass Node syntax checking.
 - Chrome inspection verified the unified dashboard, Find, highlighted candidate,

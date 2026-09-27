@@ -1,5 +1,30 @@
 # Judge and Observer Debug Dashboard — Specification
 
+## Laptop obstacle-warning demo (2026-09-27)
+
+Expose the existing Stage A depth warnings on the unified dashboard with an
+explicit Enable warning audio button. Speak fixed local phrases with browser
+speech synthesis, without Gemini or ElevenLabs. Pi snapshots carry a translated
+phrase and its remaining evidence lifetime; elapsed HTTP time consumes that
+lifetime. Expired evidence is never queued for later playback. Urgent warnings
+repeat at most every 2 seconds, caution every 3 seconds, unavailable every 15.
+
+Live urgent or unavailable sensing interrupts pending scene requests/audio and
+ends Guardian before browser warning speech; the dashboard must invalidate late
+replies. Caution waits for an idle scene/Guardian audio lane and must still be
+fresh when spoken. Stop turns warning audio off; a separate mute button is always
+available. The alarm is a laptop demonstration over HTTP/browser scheduling,
+not the on-device real-time hazard audio loop or a movement-permission source.
+
+Existing judge simulation controls can demonstrate warning phrases, prefixed
+"Simulated warning". Simulation must never stop or start physical guidance or
+Guardian; if another conversation owns audio, simulated speech is skipped.
+Missing sensing is announced as unavailable, never as a clear path. Default
+uncalibrated hardware remains unavailable until the existing calibration and
+coverage requirements are met. No semantic object labels or floor hazards are
+inferred. Tests cover phrase translation, stale suppression, repeat limiting,
+audio ownership and simulated-vs-live behavior.
+
 ## Unified operator dashboard (2026-09-27)
 
 The existing dashboard design becomes the single judging/operator interface at

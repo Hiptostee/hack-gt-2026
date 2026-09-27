@@ -9,8 +9,9 @@ carries exact frame stamps/dimensions and named-target commands/events. No lapto
 code grants hazard permission. The default launch page `/` combines the original
 dashboard with laptop controls; `/demo` is an alias. The object workflow is
 Find → inspect the box → Guide, with a new capture and identification for Guide.
-See [dashboard/specs.md](dashboard/specs.md). The physical-button mappings below
-remain unchanged.
+The dashboard also provides opt-in laptop obstacle warning audio from Pi hazard
+snapshots; see [dashboard/specs.md](dashboard/specs.md). The physical-button
+mappings below remain unchanged.
 
 
 > This was the voice-only design before integration. The current branch also

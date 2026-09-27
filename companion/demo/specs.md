@@ -16,6 +16,12 @@ Real SMS is excluded from this demo; use the existing fake sender explicitly.
 Tactile hardware is optional and is not required to complete this sequence.
 
 ## Interaction
+The dashboard also provides opt-in laptop obstacle warning audio; see
+[dashboard warning contract](../dashboard/specs.md). Urgent/unavailable live
+sensing interrupts scene/Guardian audio; simulation speech only uses an idle
+audio lane and never controls navigation. Stop mutes warnings. This HTTP/browser
+demo supplies no real-time safety or movement-permission lease.
+
 The browser provides hold-to-talk, typed question, stop, repeat, local status,
 Guardian start/end and Guardian hold-to-talk controls. Start Guardian stops
 navigation and pending scene speech. Stop cancels pending replies and navigation.

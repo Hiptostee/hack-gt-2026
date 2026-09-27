@@ -7,6 +7,37 @@ are the things that get lost.
 ---
 
 
+## 2026-09-27 — Laptop obstacle warnings in the dashboard
+
+User clarified that "navigate portion" meant object/obstacle warnings, not the
+newer localization planner. Main already contains the reviewed integration at
+`a8773fd`; no localization/tactile branch code was merged for this request.
+
+Added Enable/Mute obstacle warnings to the dashboard. The existing Pi hazard
+snapshots now expose translated fixed phrases and remaining evidence lifetime.
+Browser warning speech uses no Gemini/ElevenLabs call; HTTP elapsed time consumes
+the evidence lifetime. Urgent/unavailable live sensing invalidates scene work
+and ends Guardian before browser warning speech; caution skips occupied audio.
+Repeat limits are 2 seconds urgent, 3 seconds caution and 15 seconds unavailable.
+Stop mutes the monitor and suppresses late speech callbacks.
+
+Existing judge hazard buttons produce explicitly prefixed "Simulated warning"
+speech only on an idle audio lane, with no navigation or Guardian action. Each
+hazard payload marks its own simulation source, so a simulated direction cannot
+relabel a real hazard as simulated. Missing/calibration-invalid sensing remains
+unavailable; movement gates are unchanged. This is a laptop HTTP/browser demo,
+not the on-device real-time warning loop or verified wearable sensing.
+
+Validation: 213 Python tests and 22 Node tests pass, including phrase/TTL,
+expired evidence, repeat limits, handoff cancellation and simulation isolation.
+Chrome showed the explicit simulated head-obstacle phrase and audio playback
+indicator, and Stop returned warning audio to off without a spurious error.
+No microphone/cloud/hardware detection test was performed. Updated specs,
+README, plan and runbook with the warning demo and calibration limits. Changes
+remain uncommitted; main on GitHub has not been changed by this work.
+
+---
+
 ## 2026-09-27 — Pi deployment review and main preparation
 
 The user committed/pushed the combined integration as `ffaa730` on

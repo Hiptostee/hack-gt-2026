@@ -90,6 +90,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(PAGE, "text/html; charset=utf-8")
         elif self.path == "/dashboard-controls.js":
             return self._send((Path(__file__).parent.parent / "dashboard" / "controls.js").read_text(), "text/javascript; charset=utf-8")
+        elif self.path == "/dashboard-warnings.js":
+            return self._send((Path(__file__).parent.parent / "dashboard" / "warnings.js").read_text(), "text/javascript; charset=utf-8")
         elif self.path == "/demo/state":
             return self._json(self.server.demo.snapshot(touch=True))
         elif self.path in ("/", "/index.html"):
@@ -208,11 +210,12 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(sim, dict):
             sim = {}
         if "hazard" in sim:
-            hazard_data = dict(sim["hazard"])
+            hazard_data = {**sim["hazard"], "simulated": True}
         if "guidance" in sim:
             guidance_data = dict(sim["guidance"])
         if sim.get("fault"):
             hazard_data = {
+                "simulated": True,
                 "available": False,
                 "severity": "none",
                 "urgent": False,
@@ -900,6 +903,8 @@ header .tag{
     <form id="question-form" class="operator-row"><input id="typed-question" maxlength="2000" placeholder="Ask about the scene…" aria-label="Typed scene question" required><button id="ask-typed" class="operator-btn" type="submit">Ask</button></form>
     <div class="operator-row"><button id="enable-mic" class="operator-btn">Enable mic</button><button id="stop-all" class="operator-btn danger">Stop · Esc</button><button id="repeat-answer" class="operator-btn">Repeat</button><button id="local-status" class="operator-btn">Status</button></div>
     <small id="operator-hint">Hold the microphone button or Space to talk. Release to send.</small>
+    <div class="operator-row"><button id="warning-audio" class="operator-btn" aria-pressed="false">Enable obstacle warnings</button><span id="warning-audio-state" role="status">Warning audio off</span></div>
+    <small>Pi depth alerts → laptop speakers. Judge simulations are announced as simulated. Stop mutes warnings.</small>
   </section>
 
   <div class="resp" id="resp">
@@ -1349,7 +1354,7 @@ function tickMeter(){
 
 /* ================ Voice Output Pipeline ================ */
 async function playVoiceResponse(b64Audio, answerText, token=requestEpoch) {
-  if(token!==requestEpoch || guardianState!=="closed") return;
+  if(token!==requestEpoch || guardianState!=="closed" || warningSpeaking) return;
   lastVoiceData = {audio: b64Audio, answer: answerText};
   const audioWrap = $('r-audio-wrap');
   audioWrap.style.display = '';
@@ -1377,14 +1382,16 @@ async function playVoiceResponse(b64Audio, answerText, token=requestEpoch) {
           if (ctx.state === 'suspended') await ctx.resume();
           const copy = arr.slice(0).buffer;
           const decoded = await ctx.decodeAudioData(copy);
-          if(token!==requestEpoch || guardianState!=="closed") return;
+          if(token!==requestEpoch || guardianState!=="closed" || warningSpeaking) return;
           if (activeWebAudioSource) {
             try { activeWebAudioSource.stop(); } catch(e){}
           }
           activeWebAudioSource = ctx.createBufferSource();
           activeWebAudioSource.buffer = decoded;
           activeWebAudioSource.connect(ctx.destination);
+          const playingSource = activeWebAudioSource;
           activeWebAudioSource.onended = () => {
+            if (activeWebAudioSource === playingSource) activeWebAudioSource = null;
             audioStatus.textContent = 'Voice playback complete ⏹️';
           };
           activeWebAudioSource.start(0);
@@ -1417,6 +1424,7 @@ async function playVoiceResponse(b64Audio, answerText, token=requestEpoch) {
 }
 
 function speakFallback(text) {
+  if (warningSpeaking) return;
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
@@ -1652,12 +1660,14 @@ async function pollDebugState() {
     const d = await res.json();
     lastTelemetry = d;
     updateHud(d, rtt);
+    if (typeof obstacleWarnings !== 'undefined') obstacleWarnings.update(d, performance.now() - t0);
     if (currentLeftView === 'map') {
       drawPlannerRadar(d);
     }
   } catch (err) {
     lastTelemetry = {telemetry_unavailable: true};
     updateHud(lastTelemetry, null);
+    if (typeof obstacleWarnings !== 'undefined') obstacleWarnings.update(lastTelemetry);
     if (currentLeftView === 'map') drawPlannerRadar(lastTelemetry);
   }
   finally { isPolling = false; }
@@ -1829,6 +1839,7 @@ function updateHud(d, rtt) {
 setInterval(pollDebugState, 333);
 
 </script>
+<script src="/dashboard-warnings.js"></script>
 <script src="/dashboard-controls.js"></script>
 </body>
 </html>

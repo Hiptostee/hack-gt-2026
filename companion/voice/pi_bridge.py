@@ -111,11 +111,12 @@ def get_debug_state(server):
     if not isinstance(sim, dict):
         sim = {}
     if "hazard" in sim:
-        hazard_data = dict(sim["hazard"])
+        hazard_data = {**sim["hazard"], "simulated": True}
     if "guidance" in sim:
         guidance_data = dict(sim["guidance"])
     if sim.get("fault"):
         hazard_data = {
+            "simulated": True,
             "available": False,
             "severity": "none",
             "urgent": False,

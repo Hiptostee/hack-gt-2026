@@ -3,6 +3,7 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass
 import json
 import math
+import os
 import threading
 
 HEARTBEAT_S = 0.5
@@ -187,13 +188,21 @@ class HazardState:
             severity = "urgent" if urgent else ("caution" if caution else "none")
             health = self.health.copy() if self.health else {}
             phrase = active_alerts[0].phrase if active_alerts else None
+            from companion.i18n import get, get_hazard_key
+            direction = "ahead" if active_alerts else "unknown"
+            if phrase and len(phrase.split(":")) == 3:
+                severity_key, band, direction = phrase.split(":")
+                phrase = get(get_hazard_key(severity_key, band, direction),
+                             os.environ.get("DEVICE_LANG", "en"))
             return {
-                "available": live and (self.health.get("depth") == "ok"),
+                "available": live and health.get("depth") == health.get("body_pose") == "ok",
                 "severity": severity,
                 "urgent": urgent,
                 "caution": caution,
-                "direction": "ahead" if active_alerts else "clear",
+                "direction": direction,
                 "phrase": phrase,
+                "warning_ttl_ms": max(0, int((active_alerts[0].expires_at - mono) * 1000)) if active_alerts else 0,
+                "unavailable_phrase": get("hazard_unavailable", os.environ.get("DEVICE_LANG", "en")),
                 "sensor_health": self.health.get("depth", "unknown") if self.health else "unknown",
                 "age_s": age_s,
             }
