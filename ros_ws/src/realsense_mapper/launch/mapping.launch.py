@@ -272,6 +272,7 @@ def generate_launch_description():
                 "start_ignore_radius": 0.20,
                 "wall_closing_radius": 0.12,
                 "max_visual_odom_age": 0.75,
+                "max_visual_measurement_age": 0.90,
             }],
         ),
         Node(

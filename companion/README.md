@@ -52,7 +52,7 @@ Ask for a scene description while YOLO keeps tracking the black backpack. Saying
 "bring me to the backpack" asks Gemini to return `navigate_backpack`; the voice
 service checks `/backpack/path_valid` and activates `/backpack/guidance_active`.
 The existing A* planner continuously refreshes `/backpack/path`, and the direction
-node emits `0` forward, `1` rotate right, `2` rotate left, or `3` stop on
+node emits `0` forward, `1` move right, `2` move left, or `3` stop on
 `/backpack/direction`. Say
 "stop guidance" to end it. Start the ROS backpack stack with
 `enable_backpack_stack:=true`; without a current valid route, the voice service

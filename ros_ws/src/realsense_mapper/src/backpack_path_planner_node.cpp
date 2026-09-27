@@ -44,6 +44,7 @@ public:
     inflation_radius_ = declare_parameter<double>("inflation_radius", 0.25);
     standoff_distance_ = declare_parameter<double>("standoff_distance", 0.70);
     max_visual_odom_age_ = declare_parameter<double>("max_visual_odom_age", 0.75);
+    max_visual_measurement_age_ = declare_parameter<double>("max_visual_measurement_age", 0.90);
     allow_unknown_ = declare_parameter<bool>("allow_unknown", true);
     preferred_clearance_ = declare_parameter<double>("preferred_clearance", 0.55);
     clearance_weight_ = declare_parameter<double>("clearance_weight", 2.0);
@@ -97,12 +98,11 @@ public:
           std::chrono::steady_clock::now() - last_plan_attempt_).count() >= 0.5)
       {
         const auto target = target_in_current_map();
+        // Keep the current path through a brief map-to-odom TF gap. The
+        // direction node stops if no new path arrives before its timeout.
         if (target) {
           goal_pub_->publish(*target);
           plan_to(*target);
-        } else {
-          clear_path();
-          publish_path_valid(false);
         }
       }
     });
@@ -127,7 +127,7 @@ private:
       std::chrono::steady_clock::now() - last_visual_odom_).count();
     const double measurement_age = (now() - *last_visual_odom_stamp_).seconds();
     return arrival_age <= max_visual_odom_age_ &&
-           measurement_age >= -0.1 && measurement_age <= max_visual_odom_age_;
+           measurement_age >= -0.1 && measurement_age <= max_visual_measurement_age_;
   }
 
   void publish_path_valid(bool valid)
@@ -661,6 +661,7 @@ private:
   double inflation_radius_;
   double standoff_distance_;
   double max_visual_odom_age_;
+  double max_visual_measurement_age_;
   bool allow_unknown_;
   double preferred_clearance_;
   double clearance_weight_;

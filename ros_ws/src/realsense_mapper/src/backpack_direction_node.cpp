@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <string>
 
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nav_msgs/msg/path.hpp"
@@ -25,8 +26,8 @@ public:
   {
     lookahead_m_ = declare_parameter<double>("lookahead_m", 0.55);
     arrival_m_ = declare_parameter<double>("arrival_m", 0.10);
-    turn_start_rad_ = declare_parameter<double>("turn_start_rad", 0.32);
-    turn_stop_rad_ = declare_parameter<double>("turn_stop_rad", 0.18);
+    lateral_start_m_ = declare_parameter<double>("lateral_start_m", 0.18);
+    lateral_stop_m_ = declare_parameter<double>("lateral_stop_m", 0.10);
     path_timeout_s_ = declare_parameter<double>("path_timeout_s", 1.5);
     validity_timeout_s_ = declare_parameter<double>("validity_timeout_s", 1.5);
 
@@ -51,7 +52,7 @@ public:
     timer_ = create_wall_timer(std::chrono::milliseconds(200),
       std::bind(&BackpackDirection::publish_direction, this));
     RCLCPP_INFO(get_logger(),
-      "Backpack direction ready: 0=forward, 1=rotate right, 2=rotate left, 3=stop");
+      "Backpack direction ready: 0=forward, 1=move right, 2=move left, 3=stop");
   }
 
 private:
@@ -60,13 +61,20 @@ private:
   static constexpr std::uint8_t kLeft = 2;
   static constexpr std::uint8_t kStop = 3;
 
-  void emit_direction(std::uint8_t direction)
+  void emit_direction(std::uint8_t direction, const char * stop_reason = "")
   {
-    if (!have_direction_ || direction != last_direction_) {
-      const char * names[] = {"forward", "rotate right", "rotate left", "stop"};
-      RCLCPP_INFO(get_logger(), "Direction %u (%s)", direction, names[direction]);
+    if (!have_direction_ || direction != last_direction_ ||
+      (direction == kStop && stop_reason_ != stop_reason))
+    {
+      const char * names[] = {"forward", "move right", "move left", "stop"};
+      if (direction == kStop) {
+        RCLCPP_INFO(get_logger(), "Direction 3 (stop: %s)", stop_reason);
+      } else {
+        RCLCPP_INFO(get_logger(), "Direction %u (%s)", direction, names[direction]);
+      }
     }
     last_direction_ = direction;
+    stop_reason_ = stop_reason;
     have_direction_ = true;
     std_msgs::msg::UInt8 command;
     command.data = direction;
@@ -86,12 +94,20 @@ private:
   void publish_direction()
   {
     const auto now = std::chrono::steady_clock::now();
-    if (!active_ || !valid_ || !path_ ||
-      std::chrono::duration<double>(now - last_active_).count() > validity_timeout_s_ ||
-      std::chrono::duration<double>(now - last_validity_).count() > validity_timeout_s_ ||
-      std::chrono::duration<double>(now - last_path_).count() > path_timeout_s_)
+    if (!active_ ||
+      std::chrono::duration<double>(now - last_active_).count() > validity_timeout_s_)
     {
-      emit_direction(kStop);
+      emit_direction(kStop, "guidance inactive");
+      return;
+    }
+    if (!valid_ ||
+      std::chrono::duration<double>(now - last_validity_).count() > validity_timeout_s_)
+    {
+      emit_direction(kStop, "path invalid or stale");
+      return;
+    }
+    if (!path_ || std::chrono::duration<double>(now - last_path_).count() > path_timeout_s_) {
+      emit_direction(kStop, "path missing or stale");
       return;
     }
 
@@ -100,7 +116,7 @@ private:
       camera_tf = tf_buffer_.lookupTransform(
         path_->header.frame_id, "camera_link", tf2::TimePointZero);
     } catch (const tf2::TransformException &) {
-      emit_direction(kStop);
+      emit_direction(kStop, "camera transform unavailable");
       return;
     }
 
@@ -110,7 +126,7 @@ private:
     const auto & poses = path_->poses;
     const auto & final = poses.back().pose.position;
     if (std::hypot(final.x - x, final.y - y) <= arrival_m_) {
-      emit_direction(kStop);
+      emit_direction(kStop, "route endpoint reached");
       return;
     }
 
@@ -141,7 +157,7 @@ private:
       }
     }
     if (closest_segment == 0) {
-      emit_direction(kStop);
+      emit_direction(kStop, "route has no usable segment");
       return;
     }
 
@@ -166,20 +182,18 @@ private:
     const double dx = goal_x - x;
     const double dy = goal_y - y;
     if (std::hypot(dx, dy) < 0.03) {
-      emit_direction(kStop);
+      emit_direction(kStop, "route point too close");
       return;
     }
     // Translation error in the camera's 2D frame: positive lateral is left.
-    const double forward_error = std::cos(theta) * dx + std::sin(theta) * dy;
     const double lateral_error = -std::sin(theta) * dx + std::cos(theta) * dy;
-    const double error = std::atan2(lateral_error, forward_error);
     std::uint8_t direction = kForward;
-    if (error > turn_start_rad_ ||
-      (last_direction_ == kLeft && error > turn_stop_rad_))
+    if (lateral_error > lateral_start_m_ ||
+      (last_direction_ == kLeft && lateral_error > lateral_stop_m_))
     {
       direction = kLeft;
-    } else if (error < -turn_start_rad_ ||
-      (last_direction_ == kRight && error < -turn_stop_rad_))
+    } else if (lateral_error < -lateral_start_m_ ||
+      (last_direction_ == kRight && lateral_error < -lateral_stop_m_))
     {
       direction = kRight;
     }
@@ -188,11 +202,12 @@ private:
 
   double lookahead_m_{0.55};
   double arrival_m_{0.10};
-  double turn_start_rad_{0.32};
-  double turn_stop_rad_{0.18};
+  double lateral_start_m_{0.18};
+  double lateral_stop_m_{0.10};
   double path_timeout_s_{1.5};
   double validity_timeout_s_{0.5};
   std::uint8_t last_direction_{kStop};
+  std::string stop_reason_;
   bool have_direction_{false};
   bool valid_{false};
   bool active_{false};
