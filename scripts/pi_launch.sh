@@ -12,7 +12,7 @@ source_launch="${repo_root}/ros_ws/src/realsense_mapper/launch/mapping.launch.py
 installed_launch="${mapper_prefix}/share/realsense_mapper/launch/mapping.launch.py"
 if [[ ! -f "$installed_launch" ]] || ! cmp -s "$source_launch" "$installed_launch"; then
   echo "The installed realsense_mapper launch is older than this checkout." >&2
-  echo "Run: cd ros_ws && colcon build --packages-select realsense_mapper && cd .." >&2
+  echo "Run: source /opt/ros/jazzy/setup.bash && cd ${repo_root}/ros_ws && colcon build --packages-select realsense_mapper" >&2
   exit 1
 fi
 
