@@ -298,10 +298,12 @@ keeps it active until the error falls below about 10 degrees.
 Movement codes are sent only after the voice companion activates
 `/backpack/guidance_active`. That topic must be refreshed at least twice a second;
 its publisher goes inactive when the user says to stop or the companion exits.
-It compares the wearer's heading with a point 0.55 m along the A* route, with
-hysteresis to reduce flicker. It publishes `3` when the path or tracking status
-is stale, the path is invalid, guidance is inactive, or the wearer reaches the
-route endpoint. For a demo, view the codes with
+It looks up the current `map -> camera_link` pose, projects it to X/Y/yaw, and
+compares the camera-frame translation error with a point 0.55 m ahead of the
+nearest position on the A* route. It stops within 0.10 m of the route endpoint;
+turn cues use hysteresis to reduce flicker. It publishes `3` when the path or
+tracking status is stale, the path is invalid, guidance is inactive, or the
+wearer reaches the route endpoint. For a demo, view the codes with
 `ros2 topic echo /backpack/direction`. The tactile bridge converts `3` to a
 neutral packet, and the ESP32 receiver also rests when packets stop arriving.
 

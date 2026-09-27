@@ -53,7 +53,7 @@ target_link_libraries(backpack_path_planner_node ${OpenCV_LIBRARIES})
 
 add_executable(backpack_direction_node src/backpack_direction_node.cpp)
 target_compile_features(backpack_direction_node PUBLIC cxx_std_17)
-ament_target_dependencies(backpack_direction_node rclcpp nav_msgs std_msgs tf2 tf2_geometry_msgs)
+ament_target_dependencies(backpack_direction_node rclcpp nav_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs)
 
 install(TARGETS mapping_status_node rgbd_tcp_receiver_node mpu6050_node backpack_detector_node
   backpack_path_planner_node backpack_direction_node valid_visual_odom_node stable_odometry_node

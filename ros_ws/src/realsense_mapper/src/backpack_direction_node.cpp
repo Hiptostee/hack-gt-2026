@@ -2,13 +2,17 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 
+#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/u_int8.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 #include "tf2/utils.h"
 
 using std::placeholders::_1;
@@ -17,10 +21,10 @@ class BackpackDirection final : public rclcpp::Node
 {
 public:
   BackpackDirection()
-  : Node("backpack_direction")
+  : Node("backpack_direction"), tf_buffer_(get_clock()), tf_listener_(tf_buffer_)
   {
     lookahead_m_ = declare_parameter<double>("lookahead_m", 0.55);
-    arrival_m_ = declare_parameter<double>("arrival_m", 0.35);
+    arrival_m_ = declare_parameter<double>("arrival_m", 0.10);
     turn_start_rad_ = declare_parameter<double>("turn_start_rad", 0.32);
     turn_stop_rad_ = declare_parameter<double>("turn_stop_rad", 0.18);
     path_timeout_s_ = declare_parameter<double>("path_timeout_s", 1.5);
@@ -91,38 +95,84 @@ private:
       return;
     }
 
+    geometry_msgs::msg::TransformStamped camera_tf;
+    try {
+      camera_tf = tf_buffer_.lookupTransform(
+        path_->header.frame_id, "camera_link", tf2::TimePointZero);
+    } catch (const tf2::TransformException &) {
+      emit_direction(kStop);
+      return;
+    }
+
+    const double x = camera_tf.transform.translation.x;
+    const double y = camera_tf.transform.translation.y;
+    const double theta = tf2::getYaw(camera_tf.transform.rotation);
     const auto & poses = path_->poses;
-    const auto & start = poses.front().pose.position;
-    double remaining = lookahead_m_;
-    double goal_x = start.x;
-    double goal_y = start.y;
-    double route_length = 0.0;
+    const auto & final = poses.back().pose.position;
+    if (std::hypot(final.x - x, final.y - y) <= arrival_m_) {
+      emit_direction(kStop);
+      return;
+    }
+
+    // Start looking ahead from the closest point on the route to the current
+    // camera X/Y, instead of the pose captured when A* last ran.
+    double closest_distance_sq = std::numeric_limits<double>::infinity();
+    std::size_t closest_segment = 0;
+    double goal_x = 0.0;
+    double goal_y = 0.0;
     for (std::size_t index = 1; index < poses.size(); ++index) {
       const auto & from = poses[index - 1].pose.position;
       const auto & to = poses[index].pose.position;
       const double dx = to.x - from.x;
       const double dy = to.y - from.y;
+      const double length_sq = dx * dx + dy * dy;
+      if (length_sq < 1e-12) {continue;}
+      const double fraction = std::clamp(
+        ((x - from.x) * dx + (y - from.y) * dy) / length_sq, 0.0, 1.0);
+      const double projected_x = from.x + fraction * dx;
+      const double projected_y = from.y + fraction * dy;
+      const double distance_sq =
+        (projected_x - x) * (projected_x - x) + (projected_y - y) * (projected_y - y);
+      if (distance_sq < closest_distance_sq) {
+        closest_distance_sq = distance_sq;
+        closest_segment = index;
+        goal_x = projected_x;
+        goal_y = projected_y;
+      }
+    }
+    if (closest_segment == 0) {
+      emit_direction(kStop);
+      return;
+    }
+
+    double remaining = lookahead_m_;
+    for (std::size_t index = closest_segment; index < poses.size(); ++index) {
+      const auto & to = poses[index].pose.position;
+      const double dx = to.x - goal_x;
+      const double dy = to.y - goal_y;
       const double length = std::hypot(dx, dy);
-      route_length += length;
       if (length < 1e-6) {continue;}
       if (remaining <= length) {
         const double fraction = remaining / length;
-        goal_x = from.x + fraction * dx;
-        goal_y = from.y + fraction * dy;
+        goal_x += fraction * dx;
+        goal_y += fraction * dy;
         break;
       }
       remaining -= length;
       goal_x = to.x;
       goal_y = to.y;
     }
-    if (route_length < arrival_m_ || std::hypot(goal_x - start.x, goal_y - start.y) < 0.05) {
+
+    const double dx = goal_x - x;
+    const double dy = goal_y - y;
+    if (std::hypot(dx, dy) < 0.03) {
       emit_direction(kStop);
       return;
     }
-
-    const double heading = tf2::getYaw(poses.front().pose.orientation);
-    const double desired = std::atan2(goal_y - start.y, goal_x - start.x);
-    const double error = std::atan2(std::sin(desired - heading), std::cos(desired - heading));
+    // Translation error in the camera's 2D frame: positive lateral is left.
+    const double forward_error = std::cos(theta) * dx + std::sin(theta) * dy;
+    const double lateral_error = -std::sin(theta) * dx + std::cos(theta) * dy;
+    const double error = std::atan2(lateral_error, forward_error);
     std::uint8_t direction = kForward;
     if (error > turn_start_rad_ ||
       (last_direction_ == kLeft && error > turn_stop_rad_))
@@ -137,7 +187,7 @@ private:
   }
 
   double lookahead_m_{0.55};
-  double arrival_m_{0.35};
+  double arrival_m_{0.10};
   double turn_start_rad_{0.32};
   double turn_stop_rad_{0.18};
   double path_timeout_s_{1.5};
@@ -155,6 +205,8 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr valid_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
+  tf2_ros::Buffer tf_buffer_;
+  tf2_ros::TransformListener tf_listener_;
 };
 
 int main(int argc, char ** argv)
