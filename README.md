@@ -306,6 +306,8 @@ tracking status is stale, the path is invalid, guidance is inactive, or the
 wearer reaches the route endpoint. For a demo, view the codes with
 `ros2 topic echo /backpack/direction`. The tactile bridge converts `3` to a
 neutral packet, and the ESP32 receiver also rests when packets stop arriving.
+The laptop launcher sends the resulting UDP packets to the current left ESP32
+at `10.89.33.186` by default; use `--esp32-host IP` if its address changes.
 The direction node logs the reason whenever it switches to `3`. Brief
 map-to-odom transform gaps retain the last route until its 1.5 s timeout;
 visual odometry arrival must remain within 0.75 s and its measurement within

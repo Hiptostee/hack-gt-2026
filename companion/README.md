@@ -102,14 +102,18 @@ voice page, and starts the Docker RViz viewer. Connect TigerVNC Viewer to
 ElevenLabs key may be set on the laptop for synthesized speech; browser audio
 works without it.
 
-The launcher also sends tactile directions to the two ESP32 hands over the same
-Wi-Fi network as the laptop. Flash both hands with that network's credentials
-as described in [the tactile firmware guide](../tactileESP32/esp32/README.md).
-The default targets are `tactile-left.local` and `tactile-right.local`; use
-`--left-hand IP --right-hand IP` if the network does not resolve them. The Pi
-bridge supplies `/backpack/direction` and route validity through the SSH tunnel.
+The launcher sends tactile directions from the Pi bridge to the left ESP32 at
+`10.89.33.186` over laptop Wi-Fi, UDP port 4210. Override it with
+`--esp32-host IP` or `TACTILE_ESP32_HOST=IP`. The existing two hand setup is
+available with `--two-hands`, or by passing `--left-hand IP --right-hand IP`.
+Flash each board with that Wi-Fi network's credentials as described in
+[the tactile firmware guide](../tactileESP32/esp32/README.md). The Pi bridge
+supplies `/backpack/direction` and route validity through the SSH tunnel.
 The laptop sends neutral when guidance ends, the route is invalid, or fresh
 direction data stops. Use `--no-tactile` while testing without the hands.
+With only the left hand connected, forward and left sweep its servo; right and
+stop leave it at rest. Start backpack guidance in the voice page before expecting
+motion.
 
 Open `http://localhost:8080`. Click and hold the browser button to speak through
 the laptop microphone, then release it. The laptop fetches one current JPEG from

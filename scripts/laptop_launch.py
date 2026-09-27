@@ -62,10 +62,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pi-ip", default=os.environ.get("PI_LAN_IP", "100.73.168.115"))
     parser.add_argument("--pi-user", default=os.environ.get("PI_SSH_USER", "raspi"))
-    parser.add_argument("--left-hand", default=os.environ.get("TACTILE_LEFT_HOST", "tactile-left.local"))
-    parser.add_argument("--right-hand", default=os.environ.get("TACTILE_RIGHT_HOST", "tactile-right.local"))
+    parser.add_argument("--esp32-host",
+                        help="Single ESP32 address for this demo")
+    parser.add_argument("--two-hands", action="store_true", help="Use separate left and right ESP32s")
+    parser.add_argument("--left-hand")
+    parser.add_argument("--right-hand")
     parser.add_argument("--no-tactile", action="store_true", help="Run without the ESP32 hands")
     args = parser.parse_args()
+    two_hands = args.two_hands or args.left_hand is not None or args.right_hand is not None or (
+        args.esp32_host is None and
+        ("TACTILE_LEFT_HOST" in os.environ or "TACTILE_RIGHT_HOST" in os.environ)
+    )
+    left_hand = args.left_hand or os.environ.get("TACTILE_LEFT_HOST", "tactile-left.local")
+    right_hand = args.right_hand or os.environ.get("TACTILE_RIGHT_HOST", "tactile-right.local")
+    esp32_host = args.esp32_host or os.environ.get("TACTILE_ESP32_HOST", "10.89.33.186")
 
     if port_open(8080) or port_open(8081):
         parser.error("Port 8080 or 8081 is already in use. Stop the old web server or SSH tunnel first.")
@@ -108,10 +118,12 @@ def main():
 
         if not args.no_tactile:
             print("Starting laptop-to-ESP32 tactile sender...", flush=True)
-            tactile = subprocess.Popen([
-                sys.executable, "-m", "companion.voice.tactile_link",
-                "--left", args.left_hand, "--right", args.right_hand,
-            ], cwd=ROOT)
+            tactile_command = [sys.executable, "-m", "companion.voice.tactile_link"]
+            if two_hands:
+                tactile_command += ["--left", left_hand, "--right", right_hand]
+            else:
+                tactile_command += ["--host", esp32_host]
+            tactile = subprocess.Popen(tactile_command, cwd=ROOT)
 
         print("Starting Docker RViz viewer...", flush=True)
         viewer = subprocess.Popen(compose + ["up", "rviz-viewer", "--build"], cwd=ROOT, env=viewer_env)

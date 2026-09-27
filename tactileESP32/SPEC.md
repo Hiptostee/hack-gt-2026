@@ -1,20 +1,22 @@
-# Tactile direction link: laptop → two ESP32 hands
+# Tactile direction link: laptop → ESP32 hands
 
 Status: the laptop sender reads fresh guidance from the Pi bridge and transmits
-the shared UDP packet. The ESP32 firmware compiles, but hasn't run on hardware yet. Change history is
-in [LOG.md](LOG.md).
+the shared UDP packet. The ESP32 firmware compiles; live board delivery still
+needs to be verified on the demo network. Change history is in [LOG.md](LOG.md).
 
 ## 1. Goal and scope
 
-The Pi 5 plans the route; the laptop tells the user which way to go by moving one SG90 servo on each hand.
-Each hand has its own ESP32-WROOM-32. The laptop sends both hands the same 3 direction
-flags over Wi-Fi UDP. **The priority is a smooth, stable wireless link.**
+The Pi 5 plans the route; the laptop tells the user which way to go by moving
+one SG90 servo on each hand. Each hand has its own ESP32-WROOM-32. The laptop
+sends the same 3 direction flags over Wi-Fi UDP to each configured hand. The
+current demo has the left hand at `10.89.33.186`; the right hand can be added
+when its address is known. **The priority is a smooth, stable wireless link.**
 
 | Flag  | Meaning    | Left servo (180°) | Right servo (180°) |
 |-------|------------|-------------------|--------------------|
 | front | go forward | sweeps            | sweeps             |
-| left  | turn left  | sweeps            | at rest            |
-| right | turn right | at rest           | sweeps             |
+| left  | move left  | sweeps            | at rest            |
+| right | move right | at rest           | sweeps             |
 
 **Only one direction is sent at a time.** There is no "back". No flags set means
 "no direction", and both servos return to rest. The servos are standard 180°
@@ -27,17 +29,17 @@ In scope: the network, the packet, the laptop sender, the ESP32 firmware
 ## 2. Network
 
 ```
-   Pi ROS guidance ── SSH tunnel ──▶ laptop ── Wi-Fi UDP :4210 ──▶ two ESP32 hands
+   Pi ROS guidance ── SSH tunnel ──▶ laptop ── Wi-Fi UDP :4210 ──▶ left ESP32
 ```
 
 - The hands join the **same Wi-Fi network as the laptop**. It must offer 2.4 GHz
   service and allow peer-to-peer UDP traffic; guest networks with client isolation
   will block this link. The laptop keeps internet access for Gemini.
 - Each hand gets an address through DHCP and advertises `tactile-left.local` or
-  `tactile-right.local` over mDNS. The laptop launcher accepts explicit hand IPs
-  if the network does not pass mDNS.
+  `tactile-right.local` over mDNS. The laptop launcher defaults to the current
+  left-hand IP `10.89.33.186` and accepts `--esp32-host IP` when it changes.
 - The Pi remains reachable over Tailscale. The laptop polls its bridge over the
-  SSH tunnel, then unicasts the three-byte packet to each hand at 20 Hz.
+  SSH tunnel, then unicasts the three-byte packet to each configured hand at 20 Hz.
 - The old Pi hotspot and C++ sender are retained as standalone test tools. They
   are not used by the integrated laptop launch.
 
@@ -74,7 +76,8 @@ exposes `/guidance/state` from ROS `/backpack/direction`, `/backpack/path_valid`
 and the voice guidance gate. Direction codes 0/1/2/3 map to
 front/right/left/neutral. A missing, invalid or stale state sends neutral.
 The ESP32 also returns to rest after 500 ms without packets. The laptop launch
-starts the sender automatically.
+starts the sender automatically, targeting the left-hand ESP32 by default.
+With only that hand connected, the right command leaves its servo at rest.
 
 The original C++ sender below remains useful for direct packet and hardware tests.
 

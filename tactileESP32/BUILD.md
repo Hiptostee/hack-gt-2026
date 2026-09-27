@@ -1,10 +1,10 @@
 # Build and setup
 
 This file covers standalone Pi sender and hotspot testing. The integrated demo
-sends from the laptop: flash both hands with the laptop's 2.4 GHz Wi-Fi credentials
+sends from the laptop: flash the left hand with the laptop's 2.4 GHz Wi-Fi credentials
 and run `python3 scripts/laptop_launch.py` from the repository root. The sender
-resolves `tactile-left.local` and `tactile-right.local`, with
-`--left-hand IP --right-hand IP` available if mDNS is blocked. The network must
+targets the left ESP32 at `10.89.33.186`; use `--esp32-host IP` if that changes.
+For two hands, pass `--left-hand IP --right-hand IP`. The network must
 allow laptop-to-ESP32 UDP traffic on port 4210. The Pi hotspot below is an older
 standalone test setup and is not needed for the integrated demo. What the system does and why is in
 [SPEC.md](SPEC.md).
@@ -13,7 +13,7 @@ standalone test setup and is not needed for the integrated demo. What the system
 |------|---------------|-----------|
 | Pi sender, tools, tests | Raspberry Pi 5, Ubuntu 24.04 (also builds on macOS/Linux for development) | CMake ≥ 3.20, C++17 compiler |
 | Hotspot | Pi 5 | NetworkManager (`nmcli`) |
-| Hand firmware | 2 × ESP32-WROOM-32 DevKit | PlatformIO with Arduino ESP32 core 3.x (arduino-cli and Arduino IDE 2 also work) |
+| Hand firmware | 1 left ESP32-WROOM-32 DevKit now; right hand optional | PlatformIO with Arduino ESP32 core 3.x (arduino-cli and Arduino IDE 2 also work) |
 
 ---
 
@@ -256,17 +256,21 @@ Everything is in [esp32/tactile_hand/config.h](esp32/tactile_hand/config.h). Re-
 
 ## 6. Wi-Fi and monitoring for the integrated demo
 
-Both hands join the laptop's 2.4 GHz Wi-Fi network. Set its SSID and password in
-the gitignored `esp32/tactile_hand/secrets.h`, then flash each hand. They receive
-DHCP addresses and advertise `tactile-left.local` and `tactile-right.local` by
-mDNS. The laptop launcher sends the shared three-byte UDP packet to port 4210 on
-both hands. The Pi remains connected to the laptop through Tailscale and SSH.
+The hands join the laptop's 2.4 GHz Wi-Fi network. Set its SSID and password in
+the gitignored `esp32/tactile_hand/secrets.h`, then flash the boards in use. They
+receive DHCP addresses and advertise `tactile-left.local` and `tactile-right.local`
+by mDNS. The laptop launcher sends the shared three-byte UDP packet to port 4210
+on the configured board or boards. The Pi remains connected to the laptop through
+Tailscale and SSH.
 
 The Wi-Fi network must permit client-to-client UDP traffic. Guest or campus
 networks may isolate clients. If mDNS does not resolve, use the IP printed by
 each hand's 115200-baud serial log:
 
 ```bash
+python3 scripts/laptop_launch.py --esp32-host 10.89.33.186
+
+# When both hands are ready:
 python3 scripts/laptop_launch.py --left-hand LEFT_IP --right-hand RIGHT_IP
 ```
 
@@ -274,6 +278,8 @@ The laptop logs each resolved target and each direction change. A neutral
 packet is sent when guidance is stopped, the path is invalid, the Pi bridge is
 unreachable, or no recent direction is available. The hand itself returns to
 rest after 500 ms without valid packets.
+The left hand sweeps for forward and left; it rests for right until a right
+hand is configured.
 
 | Hand LED | Meaning | Check |
 |----------|---------|-------|

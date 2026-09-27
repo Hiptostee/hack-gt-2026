@@ -1,4 +1,4 @@
-"""Laptop-side UDP sender for the two ESP32 tactile hands."""
+"""Laptop-side UDP sender for one ESP32 or a pair of tactile hands."""
 
 import argparse
 import json
@@ -56,22 +56,28 @@ class GuidanceFeed:
             return flags_for_state(self.state)
 
 
-def run(bridge_url, left, right):
+def target_hosts(single, left, right):
+    return {"esp32": single} if single else {"left": left, "right": right}
+
+
+def run(bridge_url, left, right, single=None, stop_event=None):
+    if stop_event is None:
+        stop_event = threading.Event()
     feed = GuidanceFeed(bridge_url)
     poller = threading.Thread(target=feed.poll, daemon=True)
     poller.start()
     sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    targets = [("left", left), ("right", right)]
+    targets = target_hosts(single, left, right)
     resolved = {}
     retry_at = 0.0
     seq = 0
     next_send = time.monotonic()
     last_flags = None
     try:
-        while True:
+        while not stop_event.is_set():
             now = time.monotonic()
             if now >= retry_at:
-                for name, host in targets:
+                for name, host in targets.items():
                     try:
                         address = (socket.gethostbyname(host), PORT)
                         if resolved.get(name) != address:
@@ -82,7 +88,7 @@ def run(bridge_url, left, right):
                         print(f"Waiting to resolve {name} hand ({host})", flush=True)
                 retry_at = now + 5
 
-            flags = feed.flags() if len(resolved) == 2 else 0
+            flags = feed.flags() if len(resolved) == len(targets) else 0
             if flags != last_flags:
                 names = {0: "neutral", 1: "front", 2: "left", 4: "right"}
                 print(f"Tactile direction: {names[flags]}", flush=True)
@@ -118,10 +124,11 @@ def run(bridge_url, left, right):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pi-url", default="http://127.0.0.1:8081")
+    parser.add_argument("--host", help="Send to one ESP32 instead of a left/right pair")
     parser.add_argument("--left", default="tactile-left.local")
     parser.add_argument("--right", default="tactile-right.local")
     args = parser.parse_args()
-    run(args.pi_url, args.left, args.right)
+    run(args.pi_url, args.left, args.right, args.host)
 
 
 if __name__ == "__main__":
