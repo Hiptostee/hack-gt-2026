@@ -241,6 +241,7 @@ def generate_launch_description():
             name="backpack_detector",
             output="screen",
             condition=IfCondition(enable_backpack_stack),
+            prefix="nice -n 10",
             parameters=[{
                 "model_path": backpack_model_path,
                 "confidence_threshold": 0.18,

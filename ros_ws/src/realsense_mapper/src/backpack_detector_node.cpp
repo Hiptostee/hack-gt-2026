@@ -35,8 +35,8 @@ public:
     dark_value_threshold_ = declare_parameter<int>("dark_value_threshold", 105);
     minimum_dark_ratio_ = declare_parameter<double>("minimum_dark_ratio", 0.18);
 
-    // Leave CPU time for camera tracking and mapping on the Pi.
-    cv::setNumThreads(2);
+    // Keep inference from occupying multiple Pi cores while odometry runs.
+    cv::setNumThreads(1);
     net_ = cv::dnn::readNetFromONNX(model_path_);
     net_.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
     net_.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);

@@ -163,6 +163,8 @@ verify all signs against the mounted board and override `imu_qx`, `imu_qy`,
 by tilting each axis before using the IMU to judge localization quality.
 
 Mapping and the backpack stack are on by default in `./scripts/pi_launch.sh`.
+The YOLO detector runs at lower CPU priority with one OpenCV worker so camera
+tracking gets CPU time first. Inference may take longer as a result.
 The D415 has no built-in IMU. If an external MPU6050 is connected and
 `/imu/data_raw` is publishing, add `enable_imu:=true`. Disable YOLO and the
 planner for an odometry-only test with `enable_backpack_stack:=false`.
