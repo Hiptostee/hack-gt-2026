@@ -6,6 +6,44 @@ are the things that get lost.
 
 ---
 
+## 2026-09-26 22:20 — Multilingual support (EN/KO/ZH/JA/ES)
+
+Implemented language support for English, Korean, Chinese, Japanese, and
+Spanish across all user-facing speech output.
+
+**What changed:**
+
+- New `companion/i18n/__init__.py`: phrase table with ~30 translated strings
+  for all 5 languages, plus voice mappings for `espeak-ng` and macOS `say`.
+- `speech.py` `render_local()`: now accepts a `lang` parameter to select the
+  right TTS voice (`espeak-ng -v ko`, macOS `say -v Yuna`, etc.).
+- `gemini.py` system prompt: added "answer in the same language the user spoke"
+  instruction; `device_action` and schema fields stay English.
+- `hazards.py`: renders all phrases from the i18n table at startup instead of
+  hardcoded English. Takes `lang` in constructor.
+- `__main__.py`: reads `DEVICE_LANG` env var (defaults to `en`), threads it
+  through `Companion`, `HazardVoice`, `status_text()`, `battery_text()`, and
+  all hardcoded strings (Ready, Something went wrong, Guidance stopped, etc.).
+- Guardian `session.py`: `EXIT_LINES` is now a phrase-ID map; new `exit_line()`
+  function returns translated text. Controller takes `lang`; cancel-window
+  announcement uses the phrase table. `from_env()` passes `lang` through.
+- Guardian `sms.py`: `SmsGate` takes `lang`; the spoken SMS preview uses the
+  phrase table. SMS body text stays English (the contact reads it).
+
+**What did NOT change:** `device_action` values, schema field names, SMS body
+text, ElevenLabs companion TTS model (already `eleven_flash_v2_5`, which is
+multilingual). No new processes or dependencies.
+
+**Still needs:**
+- Switch Guardian agent TTS model from `eleven_flash_v2` to `eleven_flash_v2_5`
+  in the ElevenLabs dashboard and update `agent.md`.
+- Add "answer in the user's language" to the Guardian agent system prompt in
+  the dashboard.
+- Validate voice quality per language by ear.
+- Full spec at `companion/i18n/specs.md`.
+
+---
+
 ## 2026-09-26 — Hazard documentation reconciled after commit
 
 Stage A hazard implementation is now committed on `feature/guardian` as

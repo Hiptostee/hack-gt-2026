@@ -135,7 +135,7 @@ def sender_from_env(env):
 
 class SmsGate:
     def __init__(self, sender, contact_name, contact_number, user_name, speak, update,
-                 clock=time.monotonic, spawn=None):
+                 clock=time.monotonic, spawn=None, lang=None):
         self.sender = sender
         self.contact_name = contact_name or "your contact"
         self.contact_number = contact_number
@@ -144,6 +144,7 @@ class SmsGate:
         self.update = update    # update(text): tell the agent what happened.
         self.clock = clock
         self.spawn = spawn or (lambda fn: threading.Thread(target=fn, daemon=True).start())
+        self.lang = lang
         self.lock = threading.Lock()
         self.draft = None
         self.sends = 0
@@ -156,6 +157,7 @@ class SmsGate:
     def compose(self, note, observation):
         # Short on purpose: the device reads all of it aloud inside the agent's
         # 25 s tool timeout, and the contact needs the facts, not device health.
+        # SMS body stays in English — the contact reads it.
         note = " ".join((note or "").split())[:NOTE_LIMIT].rstrip(".")
         text = f"{self.user_name} asked for help from their wearable. {observation}"
         if note:
@@ -175,8 +177,9 @@ class SmsGate:
             self.drafts += 1
             draft = self.draft = Draft(self.compose(note, observation), self.clock(),
                                        number=self.drafts)
-        self.speak(f"I'll text {self.contact_name}: {draft.text} "
-                   "Hold the button and say yes to send, or no to cancel.")
+        from companion.i18n import get
+        preview = get("sms_preview", self.lang).format(contact=self.contact_name, text=draft.text)
+        self.speak(preview)
         with self.lock:
             if self.draft is not draft:
                 return "The text was cancelled before the user could answer. It was not sent."

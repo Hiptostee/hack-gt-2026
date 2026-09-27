@@ -168,15 +168,27 @@ class Speech:
             return False
         return playback.wait()
 
-    def render_local(self, text):
-        """Offline engine to int16 PCM at the owner's rate, or None."""
+    def render_local(self, text, lang=None):
+        """Offline engine to int16 PCM at the owner's rate, or None.
+
+        *lang* selects the TTS voice (e.g. ``"ko"`` for Korean).  When
+        ``None`` the engine's default (English) voice is used.
+        """
+        from companion.i18n import ESPEAK_VOICES, SAY_VOICES
+
         if platform.system() == "Darwin":
             wpm = str(int(175 * self.speed))
-            command = ["say", "-r", wpm, "--data-format=LEI16@22050", "-o"]
+            command = ["say", "-r", wpm, "--data-format=LEI16@22050"]
+            voice = SAY_VOICES.get(lang) if lang else None
+            if voice:
+                command += ["-v", voice]
+            command.append("-o")
         elif shutil.which("espeak-ng"):
-            command = ["espeak-ng", "-s", str(int(170 * self.speed)), "--stdin", "-w"]
+            voice = ESPEAK_VOICES.get(lang, "en") if lang else "en"
+            command = ["espeak-ng", "-v", voice, "-s", str(int(170 * self.speed)), "--stdin", "-w"]
         elif shutil.which("espeak"):
-            command = ["espeak", "-s", str(int(170 * self.speed)), "--stdin", "-w"]
+            voice = ESPEAK_VOICES.get(lang, "en") if lang else "en"
+            command = ["espeak", "-v", voice, "-s", str(int(170 * self.speed)), "--stdin", "-w"]
         else:
             print("No local speech engine. Install espeak-ng.", file=sys.stderr)
             return None

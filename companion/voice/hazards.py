@@ -7,6 +7,7 @@ import sys
 import numpy as np
 
 from companion.voice.audio import URGENT
+from companion.i18n import get, get_hazard_key
 
 PHRASE = "Obstacle ahead."
 # Same event at most every 2 s for urgent warnings (hazard spec §6).
@@ -16,11 +17,12 @@ TONE = [(1320, 0.08), (0, 0.04), (1320, 0.08), (0, 0.06)]
 
 
 class HazardVoice:
-    def __init__(self, audio, speech):
+    def __init__(self, audio, speech, lang=None):
         self.audio = audio
         parts = [audio.tone(f, d, 0.7) if f else np.zeros(int(audio.output_rate * d), np.int16)
                  for f, d in TONE]
-        phrase = speech.render_local(PHRASE)
+        phrase_text = get("obstacle_ahead", lang)
+        phrase = speech.render_local(phrase_text, lang=lang)
         self.phrase_ready = phrase is not None
         if not self.phrase_ready:
             print("Hazard phrase unavailable: warnings are tone only.", file=sys.stderr)
@@ -31,21 +33,19 @@ class HazardVoice:
         for severity in ("urgent", "caution"):
             for band in ("head", "torso"):
                 for direction in ("left", "center", "right"):
-                    text = "Head-height obstacle ahead" if band == "head" else "Obstacle ahead"
-                    if direction != "center":
-                        text += ", " + direction
-                    if severity == "urgent":
-                        text = "Stop. " + text
-                    clip = speech.render_local(text + ".")
+                    phrase_id = get_hazard_key(severity, band, direction)
+                    text = get(phrase_id, lang)
+                    clip = speech.render_local(text, lang=lang)
                     self.phrase_ready = self.phrase_ready and clip is not None
                     # Short urgent onset; never wait for cloud synthesis.
                     prefix = audio.tone(1320, 0.06, 0.7) if severity == "urgent" else np.zeros(0, np.int16)
                     self.bank[f"{severity}:{band}:{direction}"] = np.concatenate(
                         [prefix, clip if clip is not None else self.clip])
-        for key, text in {"unavailable": "Hazard sensing unavailable. Use your cane.",
-                          "ready": "Hazard warnings ready. Floor hazards are not monitored.",
-                          "restored": "Hazard sensing restored."}.items():
-            clip = speech.render_local(text)
+        for key, phrase_id in {"unavailable": "hazard_unavailable",
+                               "ready": "hazard_ready",
+                               "restored": "hazard_restored"}.items():
+            text = get(phrase_id, lang)
+            clip = speech.render_local(text, lang=lang)
             self.phrase_ready = self.phrase_ready and clip is not None
             self.bank[key] = clip if clip is not None else self.clip
         self.bank["alive"] = audio.tone(440, 0.04, 0.08)

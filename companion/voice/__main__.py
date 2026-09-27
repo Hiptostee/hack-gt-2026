@@ -15,6 +15,7 @@ import threading
 import time
 
 from companion.errors import AppError
+from companion.i18n import get as i18n, DEFAULT as I18N_DEFAULT
 from companion.voice.audio import HELP, INFO, Audio
 from companion.voice.button import open_button
 from companion.voice.camera import open_camera
@@ -53,24 +54,24 @@ def network_up():
         return False
 
 
-def battery_text():
+def battery_text(lang=None):
     for path in glob.glob("/sys/class/power_supply/*/capacity"):
         try:
             with open(path) as handle:
-                return f"Battery {handle.read().strip()} percent."
+                return i18n("battery_level", lang).format(percent=handle.read().strip())
         except OSError:
             continue
-    return "Battery level unknown."
+    return i18n("battery_unknown", lang)
 
 
-def status_text(camera, gemini, session, landmark=True):
+def status_text(camera, gemini, session, landmark=True, lang=None):
     """Local device status. Shared by double-tap help and Guardian, which adds
     its own observation trail instead of the single landmark."""
     parts = [
-        "Network reachable." if network_up() else "No network.",
-        "Camera: " + camera.status() + ".",
-        "Gemini key configured." if gemini.key else "No Gemini key.",
-        battery_text(),
+        i18n("network_up", lang) if network_up() else i18n("network_down", lang),
+        i18n("camera_status", lang).format(status=camera.status()),
+        i18n("gemini_configured", lang) if gemini.key else i18n("gemini_missing", lang),
+        battery_text(lang),
     ]
     if landmark:
         parts.append(session.describe_landmark())
@@ -79,7 +80,8 @@ def status_text(camera, gemini, session, landmark=True):
 
 class Companion:
     def __init__(self, audio, speech, gemini, camera, session, button, events,
-                 guidance=None, hazards=None, guardian=None, hazard_state=None):
+                 guidance=None, hazards=None, guardian=None, hazard_state=None,
+                 lang=None):
         self.audio = audio
         self.guardian = guardian
         self.speech = speech
@@ -91,6 +93,7 @@ class Companion:
         self.guidance = guidance
         self.hazards = hazards
         self.hazard_state = hazard_state
+        self.lang = lang
         self.pending_hazard = None
         self.lanes = {name: queue.Queue() for name in set(LANES.values())}
         self.state = "idle"
@@ -107,7 +110,7 @@ class Companion:
     def run(self):
         for lane in self.lanes.values():
             threading.Thread(target=self._worker, args=(lane,), daemon=True).start()
-        self.speech.say("Ready.", priority=INFO)
+        self.speech.say(i18n("ready", self.lang), priority=INFO)
         while self.running:
             self._poll_hazards()
             try:
@@ -271,7 +274,7 @@ class Companion:
             self.taps = 0
             if seconds < MIN_SPEECH or not wav or peak < MIN_PEAK:
                 print(f"nothing captured (peak {peak}, {seconds:.1f}s)", file=sys.stderr)
-                self._dispatch("say", "I did not hear anything.")
+                self._dispatch("say", i18n("no_audio", self.lang))
             else:
                 self._dispatch("utterance", wav)
 
@@ -346,7 +349,7 @@ class Companion:
             except Exception as error:  # A crash here must never kill the device.
                 print(f"Unexpected failure: {error!r}", file=sys.stderr)
                 self.audio.earcon("error")
-                self._speak("Something went wrong.", generation, local=True)
+                self._speak(i18n("something_wrong", self.lang), generation, local=True)
             finally:
                 self.events.put(("done", generation))
 
@@ -355,7 +358,7 @@ class Companion:
             self._utterance(payload, generation)
         elif kind == "repeat":
             self._speak(self.session.last_answer
-                        or "There is nothing to repeat yet.", generation)
+                        or i18n("nothing_to_repeat", self.lang), generation)
         elif kind == "help":
             self._help(generation)
         elif kind == "guardian":
@@ -394,14 +397,14 @@ class Companion:
         action = result["device_action"]
         if action == "navigate_backpack":
             if self.guidance is None:
-                self._speak("Backpack guidance is unavailable here.", generation, local=True)
+                self._speak(i18n("guidance_unavailable", self.lang), generation, local=True)
             else:
                 self._speak(self.guidance.start(), generation, local=True)
             return
         if action == "stop_navigation":
             if self.guidance is not None:
                 self.guidance.stop()
-            self._speak("Guidance stopped.", generation, local=True)
+            self._speak(i18n("guidance_stopped", self.lang), generation, local=True)
             return
         if action == "stop":
             return
@@ -424,28 +427,28 @@ class Companion:
         self._speak(result["answer"], generation)
 
     def _help(self, generation):
-        self._speak(status_text(self.camera, self.gemini, self.session), generation,
-                    local=True, priority=HELP)
+        self._speak(status_text(self.camera, self.gemini, self.session, lang=self.lang),
+                    generation, local=True, priority=HELP)
 
     def _guardian(self, generation):
         """Guardian was asked for but is not configured on this device."""
-        self._speak("Guardian mode isn't set up on this device.", generation,
+        self._speak(i18n("guardian_not_configured", self.lang), generation,
                     local=True, priority=HELP)
 
     def _guardian_exit(self, reason, generation):
         """Every way out of Guardian ends in the device's own voice (spec §2)."""
-        from companion.guardian.session import EXIT_LINES
+        from companion.guardian.session import exit_line
 
         if reason != "offline":
             self.audio.earcon("guardian_off")
         if reason == "cancelled":
-            self._speak(EXIT_LINES[reason], generation, local=True, priority=HELP)
+            self._speak(exit_line(reason, self.lang), generation, local=True, priority=HELP)
             return
-        status = status_text(self.camera, self.gemini, self.session)
+        status = status_text(self.camera, self.gemini, self.session, lang=self.lang)
         if reason == "offline":
-            text = f"{status} {EXIT_LINES[reason]}"
+            text = f"{status} {exit_line(reason, self.lang)}"
         else:
-            text = f"{EXIT_LINES.get(reason, EXIT_LINES['ended'])} {status}"
+            text = f"{exit_line(reason, self.lang)} {status}"
         self._speak(text, generation, local=True, priority=HELP)
 
     def _speak(self, text, generation, local=False, priority=None):
@@ -521,11 +524,18 @@ def main():
 
     button, events = open_button(args.pin)
 
+    device_lang = os.environ.get("DEVICE_LANG", I18N_DEFAULT)
+    from companion.i18n import LANGUAGES
+    if device_lang not in LANGUAGES:
+        print(f"Warning: DEVICE_LANG={device_lang!r} not recognised, defaulting to {I18N_DEFAULT!r}",
+              file=sys.stderr)
+        device_lang = I18N_DEFAULT
+
     speech = Speech(audio,
                     key=os.environ.get("ELEVENLABS_API_KEY", ""),
                     voice_id=os.environ.get("ELEVENLABS_VOICE_ID", ""),
                     model_id=os.environ.get("ELEVENLABS_MODEL", "eleven_flash_v2_5"))
-    hazards = HazardVoice(audio, speech)
+    hazards = HazardVoice(audio, speech, lang=device_lang)
     gemini = Gemini(os.environ.get("GEMINI_API_KEY", ""),
                     os.environ.get("GEMINI_MODEL", DEFAULT_MODEL))
     guidance = None
@@ -553,10 +563,12 @@ def main():
     if os.environ.get("ELEVENLABS_API_KEY") and os.environ.get("ELEVENLABS_AGENT_ID"):
         from companion.guardian.session import from_env
         guardian = from_env(audio, speech, camera, gemini, session,
-                            status=lambda: status_text(camera, gemini, session, landmark=False),
+                            status=lambda: status_text(camera, gemini, session, landmark=False, lang=device_lang),
                             network_up=network_up,
-                            notify=lambda reason: events.put(("guardian_closed", reason)))
+                            notify=lambda reason: events.put(("guardian_closed", reason)),
+                            lang=device_lang)
     print(f"Voice companion on {platform.system()}. "
+          f"Language: {device_lang}. "
           f"Gemini: {'configured' if gemini.key else 'MISSING KEY'}. "
           f"Speech: {'ElevenLabs' if speech.key and speech.voice_id else 'local engine'}. "
           f"Hazard phrase: {'ready' if hazards.phrase_ready else 'tone only'}. "
@@ -564,7 +576,7 @@ def main():
           f"Camera: {camera.status()}.", flush=True)
 
     companion = Companion(audio, speech, gemini, camera, session, button, events,
-                          guidance, hazards, guardian, hazard_state)
+                          guidance, hazards, guardian, hazard_state, lang=device_lang)
     try:
         companion.run()
     except KeyboardInterrupt:

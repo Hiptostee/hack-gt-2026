@@ -27,13 +27,20 @@ MAX_TALK = 30.0
 TALK_AFTER = 0.6
 
 EXIT_LINES = {
-    "cancelled": "Cancelled.",
-    "exit": "Guardian ended.",
-    "ended": "Guardian ended.",
-    "lost": "I lost the connection to guardian mode.",
-    "unavailable": "Guardian isn't available right now.",
-    "offline": "Guardian needs the network.",
+    "cancelled": "guardian_cancelled",
+    "exit": "guardian_ended",
+    "ended": "guardian_ended",
+    "lost": "guardian_lost_connection",
+    "unavailable": "guardian_unavailable",
+    "offline": "guardian_needs_network",
 }
+
+
+def exit_line(reason, lang=None):
+    """Translated exit announcement for *reason*."""
+    from companion.i18n import get
+    phrase_id = EXIT_LINES.get(reason, EXIT_LINES["ended"])
+    return get(phrase_id, lang)
 
 
 def connect_elevenlabs(api_key, agent_id, audio_interface, tools, dynamic_variables,
@@ -58,28 +65,30 @@ def connect_elevenlabs(api_key, agent_id, audio_interface, tools, dynamic_variab
     return conversation
 
 
-def from_env(audio, speech, camera, gemini, session, status, network_up, notify):
+def from_env(audio, speech, camera, gemini, session, status, network_up, notify, lang=None):
     """Controller configured from the environment (spec §3)."""
     from companion.guardian.sms import SmsGate, sender_from_env
 
     controller = GuardianController(
         audio, speech, camera, gemini, session, status, network_up, notify,
         api_key=os.environ.get("ELEVENLABS_API_KEY", ""),
-        agent_id=os.environ.get("ELEVENLABS_AGENT_ID", ""))
+        agent_id=os.environ.get("ELEVENLABS_AGENT_ID", ""),
+        lang=lang)
     controller.sms = SmsGate(
         sender_from_env(os.environ),
         contact_name=os.environ.get("GUARDIAN_CONTACT_NAME", ""),
         contact_number=os.environ.get("GUARDIAN_CONTACT_NUMBER", ""),
         user_name=os.environ.get("GUARDIAN_USER_NAME", ""),
         speak=controller.speak_local,
-        update=controller.update_agent)
+        update=controller.update_agent,
+        lang=lang)
     return controller
 
 
 class GuardianController:
     def __init__(self, audio, speech, camera, gemini, session, status, network_up, notify,
                  sms=None, api_key="", agent_id="", connect=connect_elevenlabs,
-                 cancel_window=CANCEL_WINDOW, connect_timeout=CONNECT_TIMEOUT):
+                 cancel_window=CANCEL_WINDOW, connect_timeout=CONNECT_TIMEOUT, lang=None):
         self.audio = audio
         self.speech = speech
         self.camera = camera
@@ -94,6 +103,7 @@ class GuardianController:
         self.connect = connect
         self.cancel_window = cancel_window
         self.connect_timeout = connect_timeout
+        self.lang = lang
         self.lock = threading.Lock()
         self.state = "closed"
         self.session_id = 0
@@ -144,7 +154,8 @@ class GuardianController:
         self.audio.earcon("guardian_on")
         threading.Thread(target=self._connect, args=(sid,), daemon=True).start()
         started = time.monotonic()
-        self.speech.say("Opening guardian mode. Tap to cancel.", local=True, priority=HELP)
+        from companion.i18n import get
+        self.speech.say(get("guardian_opening", self.lang), local=True, priority=HELP)
         if self.cancelled.wait(self.cancel_window):
             return
         if not self.connected.wait(max(0.0, self.connect_timeout - (time.monotonic() - started))):
