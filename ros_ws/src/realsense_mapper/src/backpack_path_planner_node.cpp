@@ -6,6 +6,7 @@
 #include <deque>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <queue>
 #include <regex>
@@ -22,6 +23,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp/executors/multi_threaded_executor.hpp"
 #include "sensor_msgs/image_encodings.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
 #include "sensor_msgs/msg/image.hpp"
@@ -78,13 +80,19 @@ public:
     detection_sub_ = create_subscription<std_msgs::msg::String>(
       "/yolo/black_backpack", 10,
       std::bind(&BackpackPathPlanner::detection_callback, this, _1));
+    // A* can take longer than the odometry freshness window. Receive odometry
+    // in its own callback group so planning cannot make fresh poses look stale.
+    odom_callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    rclcpp::SubscriptionOptions odom_options;
+    odom_options.callback_group = odom_callback_group_;
     visual_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/odometry/filtered", rclcpp::SensorDataQoS(),
+      "/odometry/filtered", rclcpp::SensorDataQoS().keep_last(1),
       [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {
+        std::lock_guard<std::mutex> lock(odom_mutex_);
         last_visual_odom_ = std::chrono::steady_clock::now();
         last_visual_odom_stamp_ = rclcpp::Time(msg->header.stamp, get_clock()->get_clock_type());
         have_visual_odom_ = true;
-      });
+      }, odom_options);
     watchdog_timer_ = create_wall_timer(std::chrono::milliseconds(50), [this]() {
       if (!visual_odometry_fresh()) {
         clear_path();
@@ -120,6 +128,7 @@ private:
 
   bool visual_odometry_fresh() const
   {
+    std::lock_guard<std::mutex> lock(odom_mutex_);
     if (!have_visual_odom_ || !last_visual_odom_stamp_) {
       return false;
     }
@@ -140,6 +149,18 @@ private:
   void clear_path()
   {
     if (current_path_) {
+      double arrival_age = 0.0;
+      double measurement_age = 0.0;
+      {
+        std::lock_guard<std::mutex> lock(odom_mutex_);
+        arrival_age = std::chrono::duration<double>(
+          std::chrono::steady_clock::now() - last_visual_odom_).count();
+        measurement_age = last_visual_odom_stamp_ ?
+          (now() - *last_visual_odom_stamp_).seconds() : 0.0;
+      }
+      RCLCPP_WARN(
+        get_logger(), "Clearing backpack path: odom arrival age %.2f s, measurement age %.2f s",
+        arrival_age, measurement_age);
       nav_msgs::msg::Path empty;
       empty.header.frame_id = current_path_->header.frame_id;
       empty.header.stamp = now();
@@ -671,6 +692,7 @@ private:
   int planning_start_x_{0};
   int planning_start_y_{0};
   bool have_planning_start_{false};
+  mutable std::mutex odom_mutex_;
   bool have_visual_odom_{false};
   std::chrono::steady_clock::time_point last_visual_odom_{};
   std::optional<rclcpp::Time> last_visual_odom_stamp_;
@@ -695,13 +717,17 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr detection_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr visual_odom_sub_;
+  rclcpp::CallbackGroup::SharedPtr odom_callback_group_;
   rclcpp::TimerBase::SharedPtr watchdog_timer_;
 };
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<BackpackPathPlanner>());
+  rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 2);
+  auto node = std::make_shared<BackpackPathPlanner>();
+  executor.add_node(node);
+  executor.spin();
   rclcpp::shutdown();
   return 0;
 }

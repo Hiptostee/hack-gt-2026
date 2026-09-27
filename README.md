@@ -326,7 +326,10 @@ guidance and must be disabled (`allow_unknown: false`) before any field use.
 For guidance safety, the planner accepts a brief tracking gap of at most 0.75 s
 after the last real visual-odometry message. It then clears the route, publishes
 `false` on `/backpack/path_valid`, and overlays `TRACKING LOST - STOP` on the
-camera. Any future haptic controller must require `/backpack/path_valid == true`
+camera. The planner receives odometry in a separate callback group so an A*
+replan cannot make a fresh pose appear stale; when it does clear a route, it
+logs both the odometry arrival age and the measurement age. Any future haptic
+controller must require `/backpack/path_valid == true`
 and fail silent when that topic becomes stale. This prototype is not a
 certified mobility aid and must not be the user's only navigation safeguard.
 
