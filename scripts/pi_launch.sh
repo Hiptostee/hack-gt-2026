@@ -51,10 +51,21 @@ if ! kill -0 "$router_pid" 2>/dev/null; then
   exit 1
 fi
 
-echo "Starting camera, RGB-D odometry, and Pi bridge (mapping, IMU, ICP, and backpack stack opt-in)..."
-ros2 launch realsense_mapper hardware.launch.py \
-  camera_profile:=640x480x15 \
-  "$@" &
+launch_args=(camera_profile:=640x480x15)
+mapping_arg_present=false
+for arg in "$@"; do
+  if [[ "$arg" == enable_mapping:=* ]]; then
+    mapping_arg_present=true
+    break
+  fi
+done
+if [[ "$mapping_arg_present" == false ]]; then
+  launch_args+=(enable_mapping:=true)
+fi
+launch_args+=("$@")
+
+echo "Starting camera, RGB-D odometry, mapping, and Pi bridge (IMU, ICP, and backpack stack opt-in)..."
+ros2 launch realsense_mapper hardware.launch.py "${launch_args[@]}" &
 mapping_pid=$!
 wait -n "$router_pid" "$mapping_pid" || true
 echo "A Pi service exited; stopping the remaining services." >&2

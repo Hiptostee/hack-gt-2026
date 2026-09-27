@@ -102,9 +102,10 @@ ros2 launch realsense_mapper hardware.launch.py
 ```
 
 On the Pi, run `./scripts/pi_launch.sh`. This starts the Zenoh router, D415,
-Pi camera bridge, and RGB-D odometry. Defaults are synchronized 640x480 at
+Pi camera bridge, RGB-D odometry, and RTAB-Map mapping. Defaults are synchronized 640x480 at
 15 FPS, `Odom/ImageDecimation=2`, an 8 Hz odometry cap, and a latest-frame
-processing policy. Mapping, backpack inference, IMU, and ICP are disabled.
+processing policy. Backpack inference, IMU, and ICP are disabled. To run the
+odometry-only baseline again, pass `enable_mapping:=false`.
 The raw `/visual_odom` is filtered for invalid poses by `valid_visual_odom`,
 which republishes `/odometry/filtered` and `odom -> camera_link` with the
 original measurement timestamp. There is no EKF or pose smoothing node.
@@ -158,9 +159,10 @@ verify all signs against the mounted board and override `imu_qx`, `imu_qy`,
 `imu_qz`, `imu_qw` as needed. There is no two-meter offset. Verify orientation
 by tilting each axis before using the IMU to judge localization quality.
 
-Once VO and IMU are stable, start mapping with
-`./scripts/pi_launch.sh enable_imu:=true enable_mapping:=true`. Enable the
-backpack stack with `enable_backpack_stack:=true` only when mapping is useful.
+Mapping is on by default in `./scripts/pi_launch.sh` once visual odometry is
+stable. The D415 has no built-in IMU. If an external MPU6050 is connected and
+`/imu/data_raw` is publishing, add `enable_imu:=true`. Enable the backpack
+stack with `enable_backpack_stack:=true` only when mapping is useful.
 Try `enable_icp:=true` separately after that, comparing odometry delay and
 tracking resets against the RGB-D baseline. Keep loop-closure rejection
 thresholds at their RTAB-Map defaults while improving the underlying trajectory.
@@ -273,9 +275,9 @@ RViz is preconfigured for:
 - backpack route over the occupancy map
 - YOLO-annotated camera image with the projected route and TF
 
-RViz uses `odom` as its fixed frame so the camera remains visible during the
-odometry-only baseline. The `map` frame and map displays become available after
-starting the Pi with `enable_mapping:=true`.
+RViz uses `map` as its fixed frame to show the corrected trajectory when mapping
+is running. For an odometry-only run (`enable_mapping:=false`), switch RViz's
+Fixed Frame and grid reference frame to `odom`.
 
 When a backpack has valid aligned depth, the planner transforms its center into
 the map, selects a goal 0.4 m short of the object, and plans through
